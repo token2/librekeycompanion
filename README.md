@@ -1,7 +1,7 @@
 # Libre Key Companion
-<img align="right" src="logo.svg">
-
 **An open-source, manufacturer-agnostic manager for hardware security keys on Android.**
+
+<img align="right" src="logo.svg">
 
 Libre Key Companion talks to FIDO2/CTAP2, OATH, Token2, OpenPGP and PIV keys over
 **NFC** and **USB-C**, from a single app. It is provided by Token2 Sàrl and the
