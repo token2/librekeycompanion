@@ -12,7 +12,7 @@ contributors.
 > consume retry counters on your key — read the [Safety](#safety) section before
 > using PIN features.
 
----
+ 
 
 
 
@@ -24,7 +24,22 @@ contributors.
 >   <img src="google_play.svg" alt="Get it on Google Play" height="60">
 > </a>
 
+
+
+
  
+
+
+ 
+>iOS version
+>A native iOS port is available at [librekeycompanion_ios](https://github.com/token2/librekeycompanion_ios).
+>Key differences from Android:
+>- **FIDO2 management is NFC-only.** iOS doesn't yet expose a security key's USB HID/CTAPHID interface to third-party apps, so PIN, alwaysUV, and passkey management work over NFC only.
+>- **USB-C uses CryptoTokenKit (CCID), not raw USB.** OATH, Token2 OTP, PIV, and OpenPGP read over USB-C; FIDO2 does not.
+>- Otherwise feature-parity: OATH, Token2 on-device OTP, FIDO2, PIV/OpenPGP status, and FIDO MDS lookup.
+
+
+
 
 ## Table of contents
 
