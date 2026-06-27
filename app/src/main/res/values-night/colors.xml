@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lkc_accent">#D9305E</color>
+    <color name="lkc_accent_dark">#A91D42</color>
+    <color name="lkc_background">#101216</color>
+    <color name="lkc_surface">#1B1F27</color>
+    <color name="lkc_text_primary">#F5F7FA</color>
+    <color name="lkc_text_secondary">#CBD1DA</color>
+    <color name="lkc_text_muted">#98A1AE</color>
+    <color name="lkc_blob_a">#171A21</color>
+    <color name="lkc_blob_b">#1D212A</color>
+    <color name="lkc_blob_c">#211B24</color>
+    <color name="lkc_on_accent">#FFFFFF</color>
+    <color name="lkc_divider">#2EFFFFFF</color>
+    <color name="lkc_status_border_fill">#14FFFFFF</color>
+    <color name="lkc_status_border_stroke">#2EFFFFFF</color>
+    <color name="lkc_logo_border">#66FFFFFF</color>
+    <color name="lkc_chip_success_bg">#3327D17E</color>
+    <color name="lkc_chip_success_fg">#7CE3A4</color>
+    <color name="lkc_chip_warning_bg">#33FFB36A</color>
+    <color name="lkc_chip_warning_fg">#FFB36A</color>
+    <color name="lkc_chip_danger_bg">#33FF6B6B</color>
+    <color name="lkc_chip_danger_fg">#FF8A8A</color>
+    <color name="lkc_chip_neutral_bg">#335E6673</color>
+    <color name="lkc_chip_neutral_fg">#C9CDD4</color>
+</resources>

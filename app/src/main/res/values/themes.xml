@@ -10,7 +10,20 @@
         <item name="colorSecondary">@color/lkc_accent</item>
         <item name="android:colorBackground">@color/lkc_background</item>
         <item name="colorSurface">@color/lkc_surface</item>
+        <item name="colorOnSurface">@color/lkc_text_primary</item>
+        <item name="colorOnBackground">@color/lkc_text_primary</item>
+        <item name="android:textColorPrimary">@color/lkc_text_primary</item>
+        <item name="android:textColorSecondary">@color/lkc_text_secondary</item>
+        <item name="android:textColorTertiary">@color/lkc_text_muted</item>
         <item name="android:windowBackground">@drawable/window_background</item>
+    </style>
+
+    <style name="LkcToolbarPopup" parent="Theme.MaterialComponents.DayNight">
+        <item name="colorSurface">@color/lkc_surface</item>
+        <item name="colorOnSurface">@color/lkc_text_primary</item>
+        <item name="android:colorBackground">@color/lkc_surface</item>
+        <item name="android:textColorPrimary">@color/lkc_text_primary</item>
+        <item name="android:textColorSecondary">@color/lkc_text_secondary</item>
     </style>
 
     <!-- Bottom navigation: white bar, pink active item, muted inactive. -->

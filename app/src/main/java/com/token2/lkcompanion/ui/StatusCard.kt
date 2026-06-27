@@ -1,12 +1,12 @@
 package com.token2.lkcompanion.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.token2.lkcompanion.R
 
 /**
@@ -96,13 +96,13 @@ class StatusCard(private val container: LinearLayout) {
 
     private fun applyChip(chip: TextView, state: State) {
         val (bg, fg) = when (state) {
-            State.SUCCESS -> R.drawable.chip_success to Color.parseColor("#2E7D32")
-            State.WARNING -> R.drawable.chip_warning to Color.parseColor("#E65100")
-            State.DANGER  -> R.drawable.chip_danger to Color.parseColor("#C62828")
-            State.NEUTRAL -> R.drawable.chip_neutral to Color.parseColor("#888888")
+            State.SUCCESS -> R.drawable.chip_success to R.color.lkc_chip_success_fg
+            State.WARNING -> R.drawable.chip_warning to R.color.lkc_chip_warning_fg
+            State.DANGER  -> R.drawable.chip_danger to R.color.lkc_chip_danger_fg
+            State.NEUTRAL -> R.drawable.chip_neutral to R.color.lkc_chip_neutral_fg
         }
         chip.setBackgroundResource(bg)
-        chip.setTextColor(fg)
+        chip.setTextColor(ContextCompat.getColor(ctx, fg))
     }
 
     private fun dp(v: Int): Int = (v * ctx.resources.displayMetrics.density).toInt()

@@ -13,4 +13,16 @@
     <color name="lkc_blob_b">#F8F8F8</color>
     <color name="lkc_blob_c">#FFFAFB</color>
     <color name="lkc_on_accent">#FFFFFF</color>
+    <color name="lkc_divider">#22888888</color>
+    <color name="lkc_status_border_fill">#11000000</color>
+    <color name="lkc_status_border_stroke">#33888888</color>
+    <color name="lkc_logo_border">#101426</color>
+    <color name="lkc_chip_success_bg">#1A2E7D32</color>
+    <color name="lkc_chip_success_fg">#2E7D32</color>
+    <color name="lkc_chip_warning_bg">#1FE65100</color>
+    <color name="lkc_chip_warning_fg">#E65100</color>
+    <color name="lkc_chip_danger_bg">#1FC62828</color>
+    <color name="lkc_chip_danger_fg">#C62828</color>
+    <color name="lkc_chip_neutral_bg">#22888888</color>
+    <color name="lkc_chip_neutral_fg">#5F6368</color>
 </resources>

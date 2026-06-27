@@ -1,6 +1,5 @@
 package com.token2.lkcompanion.token2ui
 
-import android.app.AlertDialog
 import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
@@ -9,6 +8,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.Toast
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.token2.lkcompanion.R
 import com.token2.lkcompanion.oath.Base32
 import com.token2.lkcompanion.oath.OathCore.HashAlgo
@@ -79,7 +79,7 @@ object AddEntryDialog {
             scanButton.visibility = View.GONE
         }
 
-        AlertDialog.Builder(context)
+        MaterialAlertDialogBuilder(context)
             .setTitle("Add OTP entry")
             .setView(view)
             .setPositiveButton("Add") { _, _ ->

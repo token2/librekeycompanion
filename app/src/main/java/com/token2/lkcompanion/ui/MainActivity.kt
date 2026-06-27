@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Configuration
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
@@ -211,7 +212,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     val cachedDup = repo.cachedDuplicateOf(entry)
                     if (cachedDup != null) {
                         // Advisory: cache suggests this identity already exists.
-                        android.app.AlertDialog.Builder(this)
+                        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                             .setTitle("Possible duplicate")
                             .setMessage("\"${cachedDup.appName} / ${cachedDup.accountName}\" " +
                                 "looks like it's already on the key. Overwrite it when you tap?")
@@ -328,8 +329,9 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         // Draw edge-to-edge on all versions (mandatory on API 35) and keep the
         // status-bar icons light, since our status bar sits over the dark-pink bar.
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowCompat.getInsetsController(window, window.decorView)
-            .isAppearanceLightStatusBars = false
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.isAppearanceLightStatusBars = false
+        controller.isAppearanceLightNavigationBars = !isNightMode()
         val root = findViewById<View>(android.R.id.content)
         // Top bars that must clear the status bar (main toolbar + overlay headers).
         val topBarIds = intArrayOf(R.id.toolbar, R.id.passkeyHeaderBar, R.id.fpHeaderBar)
@@ -359,6 +361,10 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             insets
         }
     }
+
+    private fun isNightMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
 
     /** 1s ticker drives the TOTP countdown on already-fetched codes. */
     private fun startTotpTicker() {
@@ -642,7 +648,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 }
                 is Token2Repository.OpResult.DuplicateExists -> {
                     adapter.submit(result.entries)
-                    android.app.AlertDialog.Builder(this)
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                         .setTitle("Entry already exists")
                         .setMessage("\"${result.existingLabel}\" is already on the key. Overwrite it?")
                         .setPositiveButton("Overwrite") { _, _ ->
@@ -677,7 +683,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 }
                 is com.token2.lkcompanion.oathui.OathRepository.OpResult.DuplicateExists -> {
                     oathAdapter.submit(result.entries)
-                    android.app.AlertDialog.Builder(this)
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                         .setTitle("Entry already exists")
                         .setMessage("\"${result.existingLabel}\" is already on the key. Overwrite it?")
                         .setPositiveButton("Overwrite") { _, _ ->
@@ -718,7 +724,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     }
 
     private fun confirmDeleteOath(d: com.token2.lkcompanion.oathui.OathRepository.Display) {
-        android.app.AlertDialog.Builder(this)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Delete entry?")
             .setMessage("Remove \"${if (d.issuer.isBlank()) d.account else d.issuer + " / " + d.account}\" " +
                 "from the key permanently?")
@@ -1038,7 +1044,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private fun confirmDelete(entry: com.token2.lkcompanion.token2.Token2Codec.Entry) {
         val label = if (entry.appName.isBlank()) entry.accountName
             else "${entry.appName} / ${entry.accountName}"
-        android.app.AlertDialog.Builder(this)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Delete entry?")
             .setMessage("Remove \"$label\" from the key permanently? " +
                 "This can't be undone.")
@@ -1578,7 +1584,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     textSize = 11f
                 }
                 val scroll = android.widget.ScrollView(this).apply { addView(tv) }
-                android.app.AlertDialog.Builder(this)
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                     .setTitle("USB diagnostics")
                     .setView(scroll)
                     .setPositiveButton("Copy") { _, _ ->
