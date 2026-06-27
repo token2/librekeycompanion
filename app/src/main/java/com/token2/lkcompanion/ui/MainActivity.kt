@@ -15,6 +15,10 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.token2.lkcompanion.R
@@ -119,6 +123,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applySystemBarInsets()
         statusView = findViewById(R.id.statusText)
         armedHint = findViewById(R.id.armedHint)
         fidoStatus = findViewById(R.id.fidoStatus)
@@ -308,6 +313,51 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             RECEIVER_NOT_EXPORTED)
         registerReceiver(usbDetachReceiver,
             IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED), RECEIVER_NOT_EXPORTED)
+    }
+
+    /**
+     * Edge-to-edge inset handling. targetSdk 35 (Android 15) forces the window to
+     * draw under the system bars, so without this the pink toolbar would render
+     * behind the status bar (issue #2). We keep the bars' colored backgrounds
+     * extending edge-to-edge but pad each top bar down by the status-bar inset and
+     * the bottom navigation up by the navigation-bar inset, so no content collides
+     * with the system bars. Applied as a listener so it survives rotation, split
+     * screen, and gesture/3-button nav changes.
+     */
+    private fun applySystemBarInsets() {
+        // Draw edge-to-edge on all versions (mandatory on API 35) and keep the
+        // status-bar icons light, since our status bar sits over the dark-pink bar.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView)
+            .isAppearanceLightStatusBars = false
+        val root = findViewById<View>(android.R.id.content)
+        // Top bars that must clear the status bar (main toolbar + overlay headers).
+        val topBarIds = intArrayOf(R.id.toolbar, R.id.passkeyHeaderBar, R.id.fpHeaderBar)
+        val bottomNav = findViewById<View>(R.id.bottomNav)
+        // Full-screen overlays have no bottom nav, so their lists must clear the
+        // navigation bar themselves.
+        val bottomListIds = intArrayOf(R.id.passkeyList, R.id.fpList)
+        // Cache each top bar's original top padding so repeated insets don't stack.
+        val baseTopPadding = topBarIds.associateWith { id ->
+            findViewById<View>(id)?.paddingTop ?: 0
+        }
+        val baseNavBottomPadding = bottomNav?.paddingBottom ?: 0
+        val baseListBottomPadding = bottomListIds.associateWith { id ->
+            findViewById<View>(id)?.paddingBottom ?: 0
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            for (id in topBarIds) {
+                findViewById<View>(id)?.updatePadding(top = (baseTopPadding[id] ?: 0) + bars.top)
+            }
+            bottomNav?.updatePadding(bottom = baseNavBottomPadding + bars.bottom)
+            for (id in bottomListIds) {
+                findViewById<View>(id)?.updatePadding(
+                    bottom = (baseListBottomPadding[id] ?: 0) + bars.bottom)
+            }
+            insets
+        }
     }
 
     /** 1s ticker drives the TOTP countdown on already-fetched codes. */

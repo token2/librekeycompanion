@@ -230,6 +230,7 @@
         android:background="?android:attr/colorBackground">
 
         <LinearLayout
+            android:id="@+id/passkeyHeaderBar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:orientation="horizontal"
@@ -267,6 +268,7 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
+            android:clipToPadding="false"
             android:paddingHorizontal="16dp" />
     </LinearLayout>
 
@@ -280,6 +282,7 @@
         android:background="?android:attr/colorBackground">
 
         <LinearLayout
+            android:id="@+id/fpHeaderBar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:orientation="horizontal"
@@ -346,6 +349,7 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
+            android:clipToPadding="false"
             android:paddingHorizontal="16dp" />
     </LinearLayout>
 
