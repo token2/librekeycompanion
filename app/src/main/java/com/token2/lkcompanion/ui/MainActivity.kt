@@ -245,6 +245,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         findViewById<android.widget.ImageButton>(R.id.btnPasskeyBack).setOnClickListener {
             closePasskeyScreen()
         }
+        setupFidoReset()
 
         // Fingerprints screen
         paneFingerprints = findViewById(R.id.paneFingerprints)
@@ -1076,6 +1077,8 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     }
 
     private fun renderFidoCard(i: com.token2.lkcompanion.fido.ctap.Ctap2Client.Info, retries: Int?) {
+        // A key has been read, so the reset action is now meaningful — show it.
+        findViewById<View>(R.id.fidoResetSection).visibility = View.VISIBLE
         val rows = ArrayList<StatusCard.Row>()
 
         // aaguid — full value, with a copy button. If MDS knows this AAGUID, show
@@ -1191,6 +1194,30 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private fun closePasskeyScreen() {
         passkeyScreenOpen = false
         panePasskeys.visibility = View.GONE
+    }
+
+    // --- FIDO2 reset (danger zone on the FIDO2 tab) ---
+    private fun setupFidoReset() {
+        findViewById<TextView>(R.id.resetWarningText).text = android.text.Html.fromHtml(
+            "Reset erases ALL passkeys and removes the PIN, returning the key to a " +
+                "factory state. <b>This cannot be undone.</b>",
+            android.text.Html.FROM_HTML_MODE_LEGACY)
+        findViewById<View>(R.id.btnResetFido).setOnClickListener { confirmResetFido() }
+    }
+
+    private fun confirmResetFido() {
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Erase everything?")
+            .setMessage("This permanently erases every passkey on the key and removes " +
+                "its PIN. The key returns to a factory state and this cannot be undone.\n\n" +
+                "Some keys only accept a reset within a few seconds of being connected — " +
+                "if it fails, re-tap (or unplug and replug) the key and try again immediately.")
+            .setPositiveButton("Erase everything") { _, _ ->
+                fidoRepo.arm(FidoRepository.PendingOp.ResetFido)
+                showNfcOverlay("Hold your key to the phone", "Resetting FIDO2…")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // --- fingerprints screen ---
@@ -1439,8 +1466,15 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                             "No fingerprints enrolled. Tap “Add fingerprint”." else summary
                     } else fidoArmedHint.text = summary
                 }
-                is FidoRepository.OpResult.Success ->
+                is FidoRepository.OpResult.Success -> {
                     fidoArmedHint.text = result.message
+                    toast(result.message)
+                    // If the user was in the passkey screen, drop back to the FIDO card.
+                    if (passkeyScreenOpen) {
+                        passkeyAdapter.submit(emptyList())
+                        closePasskeyScreen()
+                    }
+                }
                 is FidoRepository.OpResult.Failure -> {
                     if (passkeyScreenOpen) passkeyHint.text = "Failed: ${result.message}"
                     else fidoArmedHint.text = "Failed: ${result.message}"

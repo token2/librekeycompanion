@@ -630,6 +630,18 @@ class Ctap2Client(private val wire: Ctap2Wire) {
      * USB HID) and return the decoded CBOR body. The CTAP status byte (first
      * response byte) is checked: 0x00 = success.
      */
+    /**
+     * authenticatorReset (CTAP2 0x07). Erases ALL credentials/passkeys and clears
+     * the PIN, returning the authenticator to a factory state. Irreversible.
+     *
+     * Most authenticators only honor reset within a short window after power-up
+     * (typically ~10s) and require a user-presence touch; otherwise they return
+     * CTAP2_ERR_NOT_ALLOWED (0x30). Takes no parameters.
+     */
+    fun reset() {
+        sendCbor(CMD_RESET, null)
+    }
+
     private fun sendCbor(command: Int, cborParams: ByteArray?): Any? {
         val body = wire.send(command, cborParams ?: ByteArray(0))
         if (body.isEmpty()) throw CtapError(0xFF)

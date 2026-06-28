@@ -211,6 +211,51 @@
                     android:alpha="0.7"
                     android:paddingVertical="4dp"
                     android:text="Tap your key to read FIDO2 status." />
+
+                <!-- Pushes the reset section to the bottom of the FIDO2 tab. -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <!-- ===== FIDO2 reset (visible on the FIDO2 tab) ===== -->
+                <LinearLayout
+                    android:id="@+id/fidoResetSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Danger zone"
+                        android:textAllCaps="true"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:textColor="@color/lkc_chip_danger_fg"
+                        android:paddingBottom="4dp" />
+
+                    <TextView
+                        android:id="@+id/resetWarningText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:textColor="@color/lkc_text_secondary"
+                        android:paddingBottom="10dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnResetFido"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Reset FIDO2"
+                        android:textColor="@color/lkc_chip_danger_fg"
+                        app:strokeColor="@color/lkc_chip_danger_fg"
+                        app:icon="@drawable/ic_warning"
+                        app:iconTint="@color/lkc_chip_danger_fg" />
+                </LinearLayout>
             </LinearLayout>
         </FrameLayout>
 

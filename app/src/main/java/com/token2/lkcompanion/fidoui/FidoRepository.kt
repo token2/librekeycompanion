@@ -25,6 +25,7 @@ class FidoRepository {
         data class ListFingerprints(val pin: String) : PendingOp()
         data class RenameFingerprint(val pin: String, val templateId: ByteArray, val newName: String) : PendingOp()
         data class RemoveFingerprint(val pin: String, val templateId: ByteArray) : PendingOp()
+        object ResetFido : PendingOp()
     }
 
     sealed class OpResult {
@@ -148,6 +149,15 @@ class FidoRepository {
                     pending = PendingOp.ListFingerprints(op.pin)
                     OpResult.Fingerprints(list, message = "Fingerprint removed.")
                 }
+                is PendingOp.ResetFido -> {
+                    client.reset()
+                    // Authenticator is back to factory state: no credentials, no PIN.
+                    cachedPasskeys = emptyList()
+                    cachedFingerprints = emptyList()
+                    forgetPin()
+                    pending = PendingOp.ReadInfo
+                    OpResult.Success("FIDO2 reset complete. All passkeys erased and PIN removed.")
+                }
             }
         } catch (e: com.token2.lkcompanion.fido.ctap.CtapError) {
             OpResult.Failure(friendlyCtap(e.code))
@@ -158,6 +168,7 @@ class FidoRepository {
 
     private fun friendlyCtap(code: Int): String = when (code) {
         0x31 -> "Wrong PIN."
+        0x30 -> "Reset not allowed now. Re-tap (or unplug/replug) the key and reset within a few seconds of connecting."
         0x32 -> "PIN is blocked — reset the key to recover."
         0x34 -> "PIN auth blocked — unplug/replug (or re-tap) and try again."
         0x35 -> "No PIN is set on this key yet."
