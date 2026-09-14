@@ -52,7 +52,8 @@ import com.token2.lkcompanion.transport.UsbCcidTransport
  * applet and read status. Destructive actions live behind explicit buttons in
  * the per-applet fragments (not wired here to keep the skeleton honest).
  */
-class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
+class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
+    com.token2.lkcompanion.token2ui.QrScanDialog.Listener {
 
     private var nfcAdapter: NfcAdapter? = null
     private lateinit var usbManager: UsbManager
@@ -60,7 +61,18 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private lateinit var armedHint: TextView
     private lateinit var otpList: RecyclerView
     private lateinit var adapter: Token2EntryAdapter
-    private val repo = Token2Repository()
+    private val repo = Token2Repository().also { r ->
+        // §1.20: the key is about to wait for a finger on its sensor.
+        r.onFingerprintPrompt = {
+            runOnUiThread {
+                if (nfcOverlay.visibility == View.VISIBLE) {
+                    nfcOverlaySubtitle.text = "Touch the fingerprint sensor on the key…"
+                } else {
+                    toast("Touch the fingerprint sensor on the key…")
+                }
+            }
+        }
+    }
     private lateinit var oathAdapter: com.token2.lkcompanion.oathui.OathEntryAdapter
     private val oathRepo = com.token2.lkcompanion.oathui.OathRepository()
 
@@ -125,14 +137,43 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     /** Live add-dialog handle awaiting a scan result. */
     private var pendingScanHandle: AddEntryDialog.Handle? = null
 
-    /** ZXing scan launcher — registered at construction (required by the API). */
-    private val qrLauncher = registerForActivityResult(
-        com.journeyapps.barcodescanner.ScanContract()
-    ) { result ->
-        val contents = result?.contents
-        if (contents != null) {
-            pendingScanHandle?.applyScannedUri(contents)
+    /**
+     * Camera-permission launcher — registered at construction (required by the
+     * API). On grant, open the in-process scanner (issue #23: the scanner is a
+     * DialogFragment over this activity, so the Add dialog stays alive).
+     */
+    private val cameraPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) openQrScanner()
+        else {
+            pendingScanHandle = null
+            toast(getString(R.string.otp_scan_camera_permission))
         }
+    }
+
+    private fun requestQrScan(handle: AddEntryDialog.Handle) {
+        pendingScanHandle = handle
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.CAMERA) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) openQrScanner()
+        else cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+    }
+
+    private fun openQrScanner() {
+        if (supportFragmentManager.findFragmentByTag(
+                com.token2.lkcompanion.token2ui.QrScanDialog.TAG) != null) return
+        com.token2.lkcompanion.token2ui.QrScanDialog()
+            .show(supportFragmentManager, com.token2.lkcompanion.token2ui.QrScanDialog.TAG)
+    }
+
+    override fun onQrScanned(text: String) {
+        pendingScanHandle?.applyScannedUri(text)
+        pendingScanHandle = null
+    }
+
+    override fun onQrScanCancelled() {
         pendingScanHandle = null
     }
 
@@ -226,23 +267,13 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             }
         }
         findViewById<android.widget.ImageButton>(R.id.btnAdd).setOnClickListener {
-            // Freeze the destination while the dialog is open. A QR scan may leave
-            // the activity briefly, during which a different key can be connected.
+            // Freeze the destination while the dialog is open: a different key
+            // could be connected while the user is scanning / typing.
             val oathTarget = oathRepo.activeBackend.takeIf { otpIsOath }
             val targetsOath = otpIsOath
             AddEntryDialog.show(
                 context = this,
-                onScanRequested = { handle ->
-                    pendingScanHandle = handle
-                    val opts = com.journeyapps.barcodescanner.ScanOptions().apply {
-                        setDesiredBarcodeFormats(
-                            com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                        setPrompt("Scan an OTP QR code")
-                        setBeepEnabled(false)
-                        setOrientationLocked(true)   // follow the app's portrait UI
-                    }
-                    qrLauncher.launch(opts)
-                },
+                onScanRequested = { handle -> requestQrScan(handle) },
                 onReady = onReady@{ entry ->
                     if (targetsOath) {
                         val backend = oathTarget ?: run {
@@ -826,10 +857,11 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             when (result) {
                 is Token2Repository.OpResult.Success -> {
                     adapter.submit(result.entries)
-                    if (repo.hasPin()) {
+                    if (repo.hasAuth()) {
+                        // Unlocked via a held PIN or a fingerprint authorization.
                         otpProtected = true; otpUnlocked = true
                     } else {
-                        // A clean read with no PIN in play — this key isn't
+                        // A clean read with no auth in play — this key isn't
                         // protected (or we're not tracking one); hide the lock.
                         otpProtected = false; otpUnlocked = false
                     }
@@ -855,16 +887,24 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 is Token2Repository.OpResult.Failure ->
                     armedHint.text = "Failed: ${result.message}"
                 is Token2Repository.OpResult.Config -> {
+                    otpFingerprintCapable =
+                        result.iface.otpFingerprintProtectSupported && result.iface.fingerprintPresent
                     adapter.submit(repo.cachedEntries)
                     showInterfaceDialog(result.iface)
                 }
-                Token2Repository.OpResult.PinRequired -> {
+                is Token2Repository.OpResult.PinRequired -> {
+                    otpFingerprintCapable =
+                        result.fingerprintProtectSupported && result.fingerprintPresent
                     otpProtected = true; otpUnlocked = false; updateOtpLockButton()
-                    armedHint.text = "🔒 Codes are PIN-protected — tap the lock to unlock."
+                    armedHint.text = if (otpFingerprintCapable)
+                        "🔒 Codes are protected — unlock with PIN or fingerprint."
+                    else "🔒 Codes are PIN-protected — tap the lock to unlock."
                     adapter.submit(emptyList())   // don't leave stale/foreign entries
                     promptUnlockPin()
                 }
                 is Token2Repository.OpResult.PinWrong -> {
+                    otpFingerprintCapable =
+                        result.fingerprintProtectSupported && result.fingerprintPresent
                     otpProtected = true; otpUnlocked = false; updateOtpLockButton()
                     if (rememberedOtpPin != null) {
                         rememberedOtpPin = null
@@ -875,6 +915,25 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                         else if (left != null) " — $left attempts left" else ""
                     toast("Wrong OTP PIN$detail")
                     promptUnlockPin()
+                }
+                is Token2Repository.OpResult.FingerprintRequired -> {
+                    // PIN was right (keep it), but the on-key fingerprint check
+                    // didn't pass. Re-arm a refresh and ask for another go.
+                    otpProtected = true; otpUnlocked = false; updateOtpLockButton()
+                    adapter.submit(emptyList())
+                    repo.arm(Token2Repository.PendingOp.Refresh)
+                    armedHint.text = "👆 Fingerprint required — touch the key's sensor when prompted."
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("Fingerprint not verified")
+                        .setMessage("This key requires a fingerprint to read OTP codes. " +
+                            "Present the key again and, when asked, touch the fingerprint " +
+                            "sensor with an enrolled finger.\n\n(${result.detail})")
+                        .setPositiveButton("Try again") { _, _ ->
+                            showNfcOverlay("Present your key", "Unlocking codes…")
+                            if (connectedUsbDevice != null) rereadUsbForCurrentTab()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                 }
                 Token2Repository.OpResult.NotAToken2Key -> { /* handled above */ }
             }
@@ -1217,7 +1276,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         runOnUiThread {
             hideNfcOverlay()
             when (result) {
-                is PinResult.Status -> showPinStatusDialog(result.flag)
+                is PinResult.Status -> {
+                    otpFingerprintCapable = (result.fingerprintProtectSupported == true) &&
+                        (result.fingerprintPresent != false)
+                    showPinStatusDialog(
+                        result.flag, result.fingerprintProtectSupported, result.fingerprintPresent)
+                }
                 is PinResult.Success -> toast(result.message)
                 is PinResult.WrongPin -> toast(
                     "Wrong PIN" + (result.retriesLeft?.let { " — $it retries left" } ?: ""))
@@ -1228,6 +1292,13 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     .setPositiveButton("OK", null).show()
                 is PinResult.Unsupported -> toast("OTP PIN command failed: ${result.detail}")
                 PinResult.WrongTransport -> toast("OTP PIN needs the CCID/NFC transport (not USB-HID).")
+                PinResult.NoFingerprintEnrolled ->
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                        .setTitle("No fingerprint enrolled")
+                        .setMessage("Enable fingerprint protection needs at least one fingerprint " +
+                            "on the key. Enroll one from the FIDO2 tab → Fingerprints, then try again.")
+                        .setPositiveButton("OK", null)
+                        .show()
                 is PinResult.Failure -> toast("Failed: ${result.message}")
             }
         }
@@ -1243,15 +1314,67 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         if (connectedUsbDevice != null) rereadUsbForCurrentTab()
     }
 
-    private fun showPinStatusDialog(flag: com.token2.lkcompanion.token2.Token2Client.PinFlag) {
+    private fun showPinStatusDialog(
+        flag: com.token2.lkcompanion.token2.Token2Client.PinFlag,
+        fpProtectSupported: Boolean? = null,
+        fpPresent: Boolean? = null,
+    ) {
         val savedNote = if (rememberedOtpPin != null) "\n\nA PIN is remembered until the app closes." else ""
         val msg = if (flag.isSet)
             "OTP PIN: set\nLength: ${flag.pinLen} byte(s)\n" +
                 "Retries left: ${flag.retriesLeft} of ${flag.maxRetries}" + savedNote
         else "OTP PIN: not set"
+
+        // Custom view: status text + the fingerprint-protection switch (§1.20).
+        // Framework widgets, like showInterfaceDialog, so text and a toggle can
+        // coexist with the three dialog buttons.
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        container.addView(android.widget.TextView(this).apply {
+            text = msg
+            textSize = 15f
+        })
+
+        // The switch is offered only when the key reports the capability (or the
+        // flag is already on, so it can always be turned off again).
+        val fpOn = flag.fpEnable == true
+        val fpOffered = flag.isSet && (fpOn ||
+            (fpProtectSupported == true && fpPresent != false))
+        if (fpOffered) {
+            val sw = android.widget.Switch(this).apply {
+                text = "Require fingerprint to read OTP codes"
+                isChecked = fpOn
+                setPadding(0, pad, 0, 0)
+            }
+            container.addView(sw)
+            container.addView(android.widget.TextView(this).apply {
+                text = "When on, the key also asks for an enrolled fingerprint (on top of " +
+                    "the OTP PIN) before it will generate codes. Works best over USB; over " +
+                    "NFC keep the key on the phone while touching the sensor."
+                textSize = 12f
+                alpha = 0.7f
+                setPadding(0, pad / 4, 0, 0)
+            })
+            sw.setOnCheckedChangeListener { _, checked ->
+                if (checked == fpOn) return@setOnCheckedChangeListener
+                sw.isChecked = fpOn          // revert; the tap re-reads status
+                promptSetFingerprintProtection(checked)
+            }
+        } else if (flag.isSet && fpProtectSupported == false) {
+            container.addView(android.widget.TextView(this).apply {
+                text = "Fingerprint protection: not supported by this key."
+                textSize = 12f
+                alpha = 0.7f
+                setPadding(0, pad / 2, 0, 0)
+            })
+        }
+
         val b = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("OTP PIN status")
-            .setMessage(msg)
+            .setView(container)
             .setNegativeButton("Close", null)
         if (flag.isSet) {
             b.setPositiveButton("Change") { _, _ -> promptChangePin() }
@@ -1261,6 +1384,31 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         }
         b.show()
         // (To forget a remembered PIN, use the "Forget remembered PIN" menu item.)
+    }
+
+    /** Toggle §1.20 fingerprint-protected OTP; the flag rides on VERIFY_OTP_PIN. */
+    private fun promptSetFingerprintProtection(enable: Boolean) {
+        val title = if (enable) "Enable fingerprint protection" else "Disable fingerprint protection"
+        pinDialog(title, showOld = false, showConfirm = false, newHint = "OTP PIN") { _, pin, _ ->
+            if (pin.isBlank()) { toast("Enter your OTP PIN."); return@pinDialog }
+            if (enable) {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle("Require fingerprint?")
+                    .setMessage("After this, the key will only generate OTP codes after " +
+                        "the PIN is verified AND an enrolled fingerprint is matched on " +
+                        "the key. Make sure at least one fingerprint is enrolled (FIDO2 " +
+                        "tab → Fingerprints) before enabling.")
+                    .setPositiveButton("Enable") { _, _ ->
+                        armPin(com.token2.lkcompanion.token2ui.Token2PinRepository.PendingOp
+                            .SetFingerprintProtection(pin, true), "Enabling fingerprint protection…")
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                armPin(com.token2.lkcompanion.token2ui.Token2PinRepository.PendingOp
+                    .SetFingerprintProtection(pin, false), "Disabling fingerprint protection…")
+            }
+        }
     }
 
     /** A single masked PIN input dialog. onOk gets the entered string. */
@@ -1280,6 +1428,10 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     // whether we currently hold a verified PIN for it.
     @Volatile private var otpProtected = false
     @Volatile private var otpUnlocked = false
+    // Whether the current key advertises fingerprint-protected OTP (§1.11 ext
+    // bit 8 AND a sensor present). Learned from a config read; drives whether
+    // the unlock dialog offers a fingerprint-only option. Reset per key.
+    @Volatile private var otpFingerprintCapable = false
 
     /**
      * A PIN entry dialog reusing the shared dialog_pin layout, with the
@@ -1409,10 +1561,39 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         val rememberBox = android.widget.CheckBox(this).apply {
             text = "Remember PIN until app closes"
         }
+        val pad = (24 * resources.displayMetrics.density).toInt()
+        // Prominent fingerprint-unlock button with icon, shown above the PIN
+        // field when the key supports fingerprint unlock. Tapping it starts the
+        // touch flow and dismisses this dialog (set up after the dialog builds).
+        val fpButton = if (otpFingerprintCapable) {
+            com.google.android.material.button.MaterialButton(
+                this, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle,
+            ).apply {
+                text = getString(R.string.otp_unlock_with_fingerprint)
+                setIconResource(R.drawable.ic_fingerprint)
+                iconGravity = com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_START
+                iconPadding = (8 * resources.displayMetrics.density).toInt()
+            }
+        } else null
         val container = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
+            fpButton?.let { btn ->
+                addView(btn, android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        setMargins(pad, pad / 2, pad, 0)
+                    })
+                // "or enter your PIN" divider label between the FP button and field.
+                addView(android.widget.TextView(this@MainActivity).apply {
+                    text = getString(R.string.otp_unlock_or_pin)
+                    gravity = android.view.Gravity.CENTER
+                    alpha = 0.6f
+                    textSize = 13f
+                    setPadding(0, pad / 2, 0, 0)
+                })
+            }
             addView(view)
-            val pad = (24 * resources.displayMetrics.density).toInt()
             addView(rememberBox, android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -1420,12 +1601,17 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                 })
         }
 
-        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-            .setTitle("Enter OTP PIN")
-            .setMessage("This key's TOTP codes are PIN-protected. Enter the PIN, then " +
-                "present the key again to unlock.")
+        val message = if (otpFingerprintCapable)
+            "This key's codes are protected. Touch the fingerprint sensor, or enter " +
+                "the PIN — either one unlocks."
+        else
+            "This key's TOTP codes are PIN-protected. Enter the PIN, then " +
+                "present the key again to unlock."
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Unlock OTP codes")
+            .setMessage(message)
             .setView(container)
-            .setPositiveButton("Unlock") { _, _ ->
+            .setPositiveButton("Unlock with PIN") { _, _ ->
                 val pin = field.text?.toString() ?: ""
                 if (pin.isBlank()) { toast("Enter your OTP PIN."); return@setPositiveButton }
                 if (rememberBox.isChecked) rememberedOtpPin = pin
@@ -1436,9 +1622,25 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             }
             .setNegativeButton("Cancel") { _, _ ->
                 repo.clearPin()
-                armedHint.text = "Codes are PIN-protected — unlock to view."
+                armedHint.text = "Codes are protected — unlock to view."
             }
-            .show()
+            .create()
+        // The in-view fingerprint button starts the touch flow and closes the
+        // dialog (an AlertDialog button can't carry an icon, so it lives in the
+        // custom view instead).
+        fpButton?.setOnClickListener {
+            dialog.dismiss()
+            unlockWithFingerprint()
+        }
+        dialog.show()
+    }
+
+    /** Arm a fingerprint-only unlock and prompt for the key (§1.20). */
+    private fun unlockWithFingerprint() {
+        repo.supplyFingerprintOnly()
+        repo.arm(Token2Repository.PendingOp.Refresh)
+        showNfcOverlay("Present your key", "Touch the fingerprint sensor to unlock…")
+        if (connectedUsbDevice != null) rereadUsbForCurrentTab()
     }
 
     /** Reflect OTP protected/unlocked state on the lock button. */

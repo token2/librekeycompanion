@@ -44,6 +44,10 @@ class Token2Repository {
         /** Model support, so the UI can grey out toggles the key can't offer. */
         val keyboardSupported: Boolean,
         val ccidSupported: Boolean,
+        /** §1.11 ext bit 8: key can require a fingerprint for OTP. */
+        val otpFingerprintProtectSupported: Boolean = false,
+        /** §1.11 cfg bit 4: a fingerprint sensor is present. */
+        val fingerprintPresent: Boolean = false,
     )
 
     /** Result of executing an op against a tapped key. */
@@ -60,9 +64,23 @@ class Token2Repository {
         ) : OpResult()
         object NotAToken2Key : OpResult()
         /** Enumerate hit a PIN-protected key; the UI must collect + verify a PIN. */
-        object PinRequired : OpResult()
+        data class PinRequired(
+            val fingerprintProtectSupported: Boolean = false,
+            val fingerprintPresent: Boolean = false,
+        ) : OpResult()
         /** A supplied PIN was rejected by the key. retriesLeft if known. */
-        data class PinWrong(val retriesLeft: Int?, val maxRetries: Int?) : OpResult()
+        data class PinWrong(
+            val retriesLeft: Int?,
+            val maxRetries: Int?,
+            val fingerprintProtectSupported: Boolean = false,
+            val fingerprintPresent: Boolean = false,
+        ) : OpResult()
+        /**
+         * PIN accepted, but the key's fingerprint-protected-OTP flag is on and
+         * the §1.20 fingerprint check didn't pass (no finger / mismatch / timeout).
+         * The UI should ask the user to touch the sensor and re-present the key.
+         */
+        data class FingerprintRequired(val detail: String) : OpResult()
     }
 
     @Volatile var pending: PendingOp = PendingOp.Refresh
@@ -79,16 +97,33 @@ class Token2Repository {
     // verify window (needed over USB where the connection — and thus the open
     // window — persists across reads). Cleared after it runs.
     @Volatile private var lockOnNextContact: Boolean = false
+    /**
+     * Fingerprint-only unlock (§1.20): the key's OTP is fingerprint-protected
+     * and the user chose to authorize with a fingerprint instead of the PIN.
+     * The capture trace shows the device opens the read/write window on
+     * `80 C5 05 06 01 01` alone, with no preceding VERIFY_OTP_PIN.
+     */
+    @Volatile private var pendingFingerprintOnly: Boolean = false
 
     /** Supply a PIN to verify on the next read (for a protected key). */
     fun supplyPin(pin: String) { pendingPin = pin }
-    fun clearPin() { pendingPin = null }
+    fun clearPin() { pendingPin = null; pendingFingerprintOnly = false }
+    /** Authorize the next contact with a fingerprint only (no PIN). */
+    fun supplyFingerprintOnly() { pendingPin = null; pendingFingerprintOnly = true }
     /** Whether a PIN is currently held (supplied and not yet cleared). */
     fun hasPin(): Boolean = pendingPin != null
+    /** Whether some OTP authorization (PIN or fingerprint) is currently armed. */
+    fun hasAuth(): Boolean = pendingPin != null || pendingFingerprintOnly
     /** Forget the PIN and request the device window be closed on next contact. */
-    fun lockNow() { pendingPin = null; lockOnNextContact = true }
+    fun lockNow() { pendingPin = null; pendingFingerprintOnly = false; lockOnNextContact = true }
 
     fun arm(op: PendingOp) { pending = op }
+
+    /**
+     * Invoked (on the worker thread) right before the key is asked to verify a
+     * fingerprint, so the UI can tell the user to touch the sensor now.
+     */
+    @Volatile var onFingerprintPrompt: (() -> Unit)? = null
 
     /**
      * Run the armed op against a freshly-tapped transport. Returns a user-facing
@@ -155,6 +190,8 @@ class Token2Repository {
                             // support come from the capability bytes.
                             keyboardSupported = info.hotpSupported,
                             ccidSupported = info.ccidSupported,
+                            otpFingerprintProtectSupported = info.otpFingerprintProtectSupported,
+                            fingerprintPresent = info.fingerprintPresent,
                         )
                     )
                 }
@@ -170,11 +207,25 @@ class Token2Repository {
         } catch (e: Token2Exception.PinNotVerified) {
             val hadPin = pendingPin != null
             clearPin()
+            // Learn whether this key can unlock by fingerprint, so the unlock
+            // prompt can offer it. Best effort — a byte-0 stub over NFC leaves
+            // it false and we simply don't show the fingerprint option.
+            val info = try { client.readConfig() } catch (_: Exception) { null }
+            val fpCap = info?.hasConfigByte == true && info.raw.size >= 10
+            // Also consult the PIN flag: if fingerprint protection is already
+            // ENABLED on the key, it self-evidently supports fingerprint unlock,
+            // so offer it even when the ext capability byte is conservative or
+            // came back as a short stub over this transport.
+            val fpFlag = try { client.pinStatus().fpEnable } catch (_: Exception) { null }
+            val fpSupported = (fpCap && info!!.otpFingerprintProtectSupported) || (fpFlag == true)
+            val fpPresent = (fpCap && info!!.fingerprintPresent) || (fpFlag == true)
             if (hadPin) {
                 // Re-read the flag to report how many attempts remain.
                 val flag = try { client.pinStatus() } catch (_: Exception) { null }
-                OpResult.PinWrong(flag?.retriesLeft, flag?.maxRetries)
-            } else OpResult.PinRequired
+                OpResult.PinWrong(flag?.retriesLeft, flag?.maxRetries, fpSupported, fpPresent)
+            } else OpResult.PinRequired(fpSupported, fpPresent)
+        } catch (e: Token2Exception.FingerprintNotVerified) {
+            OpResult.FingerprintRequired(e.message ?: "fingerprint not verified")
         } catch (e: Token2Exception.ButtonPressRequired) {
             OpResult.Failure("Touch the key's button to confirm, then tap again.")
         } catch (e: Token2Exception.NotEnoughSpace) {
@@ -216,8 +267,18 @@ class Token2Repository {
             client.lockOtpPin()          // close the device window (esp. over USB)
             lockOnNextContact = false
         }
-        pendingPin?.let { pin ->
+        // Fingerprint-protected OTP means the code can be released by a
+        // fingerprint OR the PIN — either one, never both (keyroost #130). So
+        // the two paths are mutually exclusive: verify with whichever the user
+        // chose, and do NOT chain a fingerprint after a PIN verify.
+        val pin = pendingPin
+        if (pin != null) {
             client.verifyOtpPin(pin.toByteArray(Charsets.UTF_8))
+        } else if (pendingFingerprintOnly) {
+            // Fingerprint-only authorization: open the window with the finger
+            // alone (no VERIFY_OTP_PIN), as the reference does.
+            onFingerprintPrompt?.invoke()
+            client.verifyOtpFingerprint()
         }
     }
 }

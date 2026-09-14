@@ -180,14 +180,30 @@ object Token2PinCrypto {
      *   data  = IV || outer
      * `rand` is the 16-byte challenge recovered from the Lc=0x29 flag read.
      */
-    fun buildVerifyPinData(keys: SessionKeys, pin: ByteArray, rand: ByteArray): ByteArray {
+    fun buildVerifyPinData(keys: SessionKeys, pin: ByteArray, rand: ByteArray): ByteArray =
+        buildVerifyPinData(keys, pin, rand, fpEnable = null)
+
+    /**
+     * VERIFY_OTP_PIN with the optional trailing `EncConfig` block (§1.14):
+     *   Config    = pkcs7_pad16( FpEnable )        # FpEnable = 0x00 / 0x01
+     *   EncConfig = AES-CBC-nopad(EncKey, IV, Config)   # SAME IV as the outer block
+     *   data      = IV || outer || EncConfig
+     * When present, the applet sets the fingerprint-protected-OTP flag while
+     * verifying the PIN (§1.20). `fpEnable == null` omits the block (plain verify).
+     */
+    fun buildVerifyPinData(
+        keys: SessionKeys, pin: ByteArray, rand: ByteArray, fpEnable: Boolean?,
+    ): ByteArray {
         require(rand.size == 16) { "rand must be 16 bytes" }
         val pinHash = sha256(pin)                          // 32B -> AES-256 key
         val iv2 = sha256(rand).copyOfRange(0, 16)
         val inner = aesCbcNoPad(Cipher.ENCRYPT_MODE, pinHash, iv2, rand)
         val iv = randomIv()
         val outer = aesCbcNoPad(Cipher.ENCRYPT_MODE, keys.enc, iv, inner)
-        return iv + outer
+        if (fpEnable == null) return iv + outer
+        val config = pkcs7Pad16(byteArrayOf(if (fpEnable) 0x01 else 0x00))
+        val encConfig = aesCbcNoPad(Cipher.ENCRYPT_MODE, keys.enc, iv, config)
+        return iv + outer + encConfig
     }
 
     /**

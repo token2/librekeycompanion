@@ -25,6 +25,11 @@
     <string name="otp_add_entry">Añadir entrada</string>
     <string name="otp_tap_key_refresh">Toca con tu llave para actualizar.</string>
     <string name="otp_scan_qr_code">Escanear código QR</string>
+    <string name="otp_scan_qr_prompt">Apunte la cámara al código QR de OTP. Toque para enfocar.</string>
+    <string name="otp_scan_torch">Linterna</string>
+    <string name="otp_unlock_with_fingerprint">Desbloquear con huella</string>
+    <string name="otp_unlock_or_pin">o introduce tu PIN</string>
+    <string name="otp_scan_camera_permission">Se necesita el permiso de cámara para escanear códigos QR.</string>
     <string name="otp_paste_uri_label">…o pega una URI otpauth:// :</string>
     <!-- otp_uri_hint is omitted here as it is marked translatable="false" in default strings.xml -->
     <string name="otp_fill_details">— o rellena los detalles —</string>

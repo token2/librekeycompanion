@@ -25,6 +25,11 @@
     <string name="otp_add_entry">Eintrag hinzufügen</string>
     <string name="otp_tap_key_refresh">Halten Sie Ihren Schlüssel an, um zu aktualisieren.</string>
     <string name="otp_scan_qr_code">QR-Code scannen</string>
+    <string name="otp_scan_qr_prompt">Richten Sie die Kamera auf den OTP-QR-Code. Zum Fokussieren tippen.</string>
+    <string name="otp_scan_torch">Taschenlampe</string>
+    <string name="otp_unlock_with_fingerprint">Mit Fingerabdruck entsperren</string>
+    <string name="otp_unlock_or_pin">oder PIN eingeben</string>
+    <string name="otp_scan_camera_permission">Für das Scannen von QR-Codes wird die Kameraberechtigung benötigt.</string>
     <string name="otp_paste_uri_label">…oder fügen Sie eine otpauth:// URI ein:</string>
     <!-- otp_uri_hint is omitted here as it is marked translatable="false" in default strings.xml -->
     <string name="otp_fill_details">— oder geben Sie die Details ein —</string>
