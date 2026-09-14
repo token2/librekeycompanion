@@ -210,21 +210,30 @@ The app can show a FIDO2 key's friendly name, certification level and icon by
 matching its **AAGUID** against the
 [FIDO Alliance Metadata Service](https://fidoalliance.org/metadata/).
 
-- **Bundled data:** the APK ships with a metadata set (`res/raw/mds_bundled.json`)
-  so lookups work offline out of the box.
+- **Bundled data:** the APK ships with a processed metadata set
+  (`res/raw/mds_bundled.json`) so lookups work offline out of the box: hardware
+  authenticators only (software passkey providers dropped via `keyProtection`),
+  certification taken from the newest `statusReports` entry, and every icon
+  normalized to a transparent PNG capped at 96 px (SVG icons are rendered by the
+  bundler — the app never has to rasterize SVG itself).
 - **In-app update:** *About → Update metadata* downloads the full live MDS BLOB from
   `https://mds3.fidoalliance.org/` (free, no token) and caches it on the device.
-- **Format:** a flat JSON array of `{ aaguid, description, icon, status }` objects.
-  The loader also accepts the raw FIDO MDS3 BLOB (JWT) and the official
+  Note: a device cache always takes precedence over the bundled set — after
+  upgrading the app, re-run *Update metadata* once (or clear the app's storage)
+  so a stale cache doesn't shadow the newer bundled data.
+- **Format:** a flat JSON array of `{ aaguid, description, icon, status }` objects,
+  sorted by attestation root CA (same-vendor records adjacent, so identical icon
+  payloads sit inside the DEFLATE window and the APK build deduplicates them for
+  free). The loader also accepts the raw FIDO MDS3 BLOB (JWT) and the official
   `{entries:[…]}` JSON, auto-detecting the shape.
 
 ### Regenerating the bundled set
 
 `tools/generate_mds_bundle.py` downloads the live BLOB and emits the flat-array
-format the app reads:
+format the app reads (hardware-only, normalized icons, CA-sorted):
 
 ```bash
-# Full set, with icons
+# Full hardware set, with normalized icons (recommended)
 python3 tools/generate_mds_bundle.py --out app/src/main/res/raw/mds_bundled.json
 
 # Names + certification only (smaller, no icons)
@@ -232,7 +241,13 @@ python3 tools/generate_mds_bundle.py --no-icons --out app/src/main/res/raw/mds_b
 
 # Only keys whose name matches (e.g. to keep the bundle small)
 python3 tools/generate_mds_bundle.py --filter yubico token2 --out app/src/main/res/raw/mds_bundled.json
+
+# Keep software/platform authenticators too (default: dropped)
+python3 tools/generate_mds_bundle.py --include-software --out app/src/main/res/raw/mds_bundled.json
 ```
+
+Icon processing needs `Pillow`, and `resvg_py` when the BLOB contains SVG icons
+(both install from PyPI with prebuilt Windows wheels).
 
 > The script reads the BLOB for display data only; it does **not** verify the BLOB's
 > signature. That's fine for showing names/icons, but don't treat it as an
@@ -312,6 +327,10 @@ exercised on real devices:
 | **Token2 Bio3** | ✅ | ✅ | Fingerprint enrollment verified (enroll requires USB). |
 | **Pico-FIDO** | ✅ | ✅ | FIDO2 over USB works after a stale-buffer drain on INIT. OATH OTP works. |
 | **YubiKey 5** | ✅ | — | Works over NFC. USB is not yet supported for this key. |
+| **YubiKey Bio 5.7.4** | — | ✅ | Fingerprint list / enroll / rename / delete verified (model has no NFC). |
+| **Feitian ePass FIDO** | ✅ | ✅ | FIDO2 management verified. |
+| **Feitian BioPass FIDO2 Pro** | — | ✅ | Fingerprint management verified; passkey capacity (110) shown. |
+| **ACS PocketKey+ Bio** | — | ✅ | MDS name / certification level / icon resolution verified. |
 
 Other CTAP2/YKOATH/PIV/OpenPGP keys are expected to work but are unverified — please
 report results.

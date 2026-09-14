@@ -107,6 +107,9 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     @Volatile private var cachedPgpStatus: com.token2.lkcompanion.openpgp.OpenPgpApplet.CardStatus? = null
     /** A USB key that has permission and is currently connected (for tab-switch re-reads). */
     private var connectedUsbDevice: UsbDevice? = null
+    /** Identity of the current key connection ("usb:<devname>" / "nfc:<uid>"); FIDO
+     *  caches are dropped whenever it changes, so one key's data is never shown for another. */
+    @Volatile private var keySessionKey: String? = null
     /** Serializes all USB reads so two taps/resumes can't race on one connection. */
     private val usbExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     /** Guard so a replug (attach intent + resume) doesn't open the same device twice. */
@@ -527,6 +530,15 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
 
     // --- NFC ---
     override fun onTagDiscovered(tag: Tag) {
+        val sessionKey = "nfc:" + (tag.id ?: ByteArray(0)).joinToString("") { "%02x".format(it) }
+        if (sessionKey != keySessionKey) {
+            keySessionKey = sessionKey
+            fidoRepo.clearCaches()   // includes the remembered PIN
+            fpPinOwnedByScreen = false
+            // Token2 OTP PIN gets no pass across keys either.
+            rememberedOtpPin = null
+            repo.clearPin()
+        }
         val isoDep = IsoDep.get(tag) ?: run {
             post("Tag is not ISO-DEP (not a smart-card key)."); return
         }
@@ -593,7 +605,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         repo.arm(Token2Repository.PendingOp.Refresh)
         oathRepo.onTransportDisconnected()
         fidoRepo.arm(FidoRepository.PendingOp.ReadInfo)
-        fidoRepo.forgetPin()
+        fidoRepo.clearCaches()
+        fpPinOwnedByScreen = false
+        // The Token2 OTP PIN must not carry across keys either — a wrong one
+        // burns retry counters whose exhaustion wipes all OTP profiles.
+        rememberedOtpPin = null
+        repo.clearPin()
         oathRepo.forgetPasswords()
         runOnUiThread {
             otpOperationDialog?.dismiss()
@@ -619,6 +636,17 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
      * guards against opening the same device twice concurrently.
      */
     private fun openUsb(device: UsbDevice) {
+        val sessionKey = "usb:" + device.deviceName
+        if (sessionKey != keySessionKey) {
+            // A different connection than last time (replug, key swap, hub switch):
+            // stale FIDO data AND any remembered PIN (FIDO or Token2 OTP) must
+            // never survive into the new key's session.
+            keySessionKey = sessionKey
+            fidoRepo.clearCaches()   // includes the remembered PIN
+            fpPinOwnedByScreen = false
+            rememberedOtpPin = null
+            repo.clearPin()
+        }
         connectedUsbDevice = device
         if (usbBusy) return            // a read is already in flight; don't double-open
         usbBusy = true
@@ -1340,9 +1368,9 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     armPin(com.token2.lkcompanion.token2ui.Token2PinRepository.PendingOp
                         .RemovePin(old), "Removing OTP PIN…")
                 }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
     }
 
     /**
@@ -2193,6 +2221,18 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
             onAction = if (i.supportsCredMgmt) { { openPasskeyScreen() } } else null,
         ))
 
+        // Remaining discoverable-credential capacity (CTAP2.1 getInfo tag 0x14).
+        // Only shown when the key reports it; older keys simply omit the row.
+        i.remainingDiscCreds?.let { n ->
+            rows.add(StatusCard.Row(
+                iconRes = R.drawable.ic_key,
+                label = "Passkey capacity",
+                secondary = "$n more can be created",
+                chipText = "$n",
+                chipState = if (n > 0) StatusCard.State.SUCCESS else StatusCard.State.WARNING,
+            ))
+        }
+
         // Fingerprint enrollment — Manage opens the fingerprints screen.
         rows.add(StatusCard.Row(
             iconRes = R.drawable.ic_fingerprint,
@@ -2233,7 +2273,8 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         passkeyHint.text = if (fidoRepo.cachedPasskeys.isEmpty())
             "Tap your key to load passkeys." else "Tap your key to refresh."
         // Arm a list operation so the next tap loads/refreshes passkeys.
-        promptSinglePin("Load passkeys", "Enter the key's PIN to list passkeys.") { pin ->
+        promptSinglePin("Load passkeys", "Enter the key's PIN to list passkeys.",
+            onCancel = { closePasskeyScreen() }) { pin ->
             fidoRepo.arm(FidoRepository.PendingOp.ListPasskeys(pin))
             showNfcOverlay("Hold your key to the phone", "Reading passkeys…")
         }
@@ -2261,14 +2302,22 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     }
 
     // --- fingerprints screen ---
+    /** True when the PIN currently in fidoRepo was entered for this screen; dropped on exit. */
+    @Volatile private var fpPinOwnedByScreen = false
+
     private fun openFingerprintScreen() {
         fpScreenOpen = true
         paneFingerprints.visibility = View.VISIBLE
-        fpAdapter.submit(fidoRepo.cachedFingerprints)
-        fpHint.text = if (fidoRepo.cachedFingerprints.isEmpty())
-            "Tap your key to load fingerprints." else "Tap your key to refresh."
-        promptSinglePin("Load fingerprints", "Enter the key's PIN to list fingerprints.") { pin ->
-            fidoRepo.rememberPin(pin)   // held for the enroll session too
+        // Never show cached data here — fingerprint templates can be modified by
+        // other clients (Chrome/Windows/Yubico tools), so always read from the key.
+        fpAdapter.submit(emptyList())
+        fpHint.text = "Verify the key's PIN to read fingerprints."
+        // If a PIN is already remembered (e.g. the user opted in elsewhere), reuse it
+        // as-is; only a PIN entered through this screen is dropped on close.
+        fpPinOwnedByScreen = !fidoRepo.hasRememberedPin
+        promptSinglePin("Load fingerprints",
+            "Enter the key's PIN to list fingerprints.", pageScopedPin = true,
+            onCancel = { closeFingerprintScreen() }) { pin ->
             fidoRepo.arm(FidoRepository.PendingOp.ListFingerprints(pin))
             showNfcOverlay("Hold your key to the phone", "Reading fingerprints…")
         }
@@ -2277,18 +2326,21 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
     private fun closeFingerprintScreen() {
         fpScreenOpen = false
         paneFingerprints.visibility = View.GONE
+        if (fpPinOwnedByScreen) {
+            fidoRepo.forgetPin()
+            fpPinOwnedByScreen = false
+        }
     }
 
     private fun promptRenameFingerprint(fp: com.token2.lkcompanion.fido.ctap.Ctap2Client.Fingerprint) {
-        val input = com.google.android.material.textfield.TextInputEditText(this).apply {
-            setText(fp.name ?: ""); hint = "Fingerprint name"
-        }
-        val til = com.google.android.material.textfield.TextInputLayout(this).apply {
-            setPadding(dpToPx(24), dpToPx(8), dpToPx(24), 0); addView(input)
-        }
+        val view = layoutInflater.inflate(R.layout.dialog_text_input, null)
+        val til = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilInput)
+        til.hint = "Fingerprint name"
+        val input = view.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etInput)
+        input.setText(fp.name ?: "")
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Rename fingerprint")
-            .setView(til)
+            .setView(view)
             .setPositiveButton("Save") { _, _ ->
                 val name = input.text?.toString()?.trim().orEmpty()
                 if (name.isEmpty()) { toast("Name can't be empty"); return@setPositiveButton }
@@ -2403,16 +2455,14 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     runOnUiThread {
                         dialog.dismiss()
                         // Offer to name the new fingerprint.
-                        val input = com.google.android.material.textfield.TextInputEditText(this).apply {
-                            hint = "Fingerprint name (optional)"
-                        }
-                        val til = com.google.android.material.textfield.TextInputLayout(this).apply {
-                            setPadding(dpToPx(24), dpToPx(8), dpToPx(24), 0); addView(input)
-                        }
+                        val view = layoutInflater.inflate(R.layout.dialog_text_input, null)
+                        val til = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilInput)
+                        til.hint = "Fingerprint name (optional)"
+                        val input = view.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etInput)
                         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                             .setTitle("Fingerprint enrolled")
                             .setMessage("Give it a name?")
-                            .setView(til)
+                            .setView(view)
                             .setPositiveButton("Save") { _, _ ->
                                 val name = input.text?.toString()?.trim().orEmpty()
                                 if (name.isNotEmpty()) {
@@ -2589,7 +2639,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
      * Collect a single PIN for an operation. If one is already remembered this
      * session, skip the prompt and use it directly.
      */
-    private fun promptSinglePin(title: String, message: String, onPin: (String) -> Unit) {
+    private fun promptSinglePin(
+        title: String, message: String,
+        pageScopedPin: Boolean = false,
+        onCancel: (() -> Unit)? = null,
+        onPin: (String) -> Unit,
+    ) {
         fidoRepo.rememberedPin?.let { onPin(it); return }
 
         val view = layoutInflater.inflate(R.layout.dialog_pin, null)
@@ -2600,6 +2655,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
         val switchAlpha = view.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchAlpha)
         val switchRemember = view.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchRemember)
         switchAlpha.setOnCheckedChangeListener { _, checked -> setAlphaMode(field, checked) }
+        if (pageScopedPin) {
+            // The fingerprint screen manages its own PIN scope: remembered on entry,
+            // dropped on exit — the session-wide "remember" choice isn't offered here.
+            view.findViewById<View>(R.id.rememberRow).visibility = View.GONE
+            view.findViewById<View>(R.id.rememberNotice).visibility = View.GONE
+        }
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(title)
@@ -2612,13 +2673,13 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback {
                     // Remember for the rest of this operation so any follow-up read
                     // (e.g. the post-op refresh) doesn't prompt again. If the user
                     // didn't opt to keep it, forget it once the operation settles.
-                    val keep = switchRemember.isChecked
+                    val keep = switchRemember.isChecked || pageScopedPin
                     fidoRepo.rememberPin(pin)
                     if (!keep) pendingForgetPin = true
                     onPin(pin)
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Cancel") { _, _ -> onCancel?.invoke() }
             .show()
     }
 

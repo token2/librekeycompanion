@@ -48,9 +48,6 @@ class FidoRepository {
     @Volatile var cachedPasskeys: List<Ctap2Client.Passkey> = emptyList()
         private set
 
-    @Volatile var cachedFingerprints: List<Ctap2Client.Fingerprint> = emptyList()
-        private set
-
     /**
      * Session-only remembered PIN. Held in memory for convenience so consecutive
      * operations don't each re-prompt. NOT persisted to disk — a FIDO2 PIN on
@@ -63,6 +60,15 @@ class FidoRepository {
     fun rememberPin(pin: String) { rememberedPin = pin }
     fun forgetPin() { rememberedPin = null }
     val hasRememberedPin get() = rememberedPin != null
+
+    /** Drop everything tied to the current key: cached data **and** any
+     *  remembered PIN. Called whenever the key connection changes, so neither
+     *  data nor credentials can ever carry across keys. */
+    fun clearCaches() {
+        cachedPasskeys = emptyList()
+        lastInfo = null
+        rememberedPin = null
+    }
 
     fun arm(op: PendingOp) { pending = op }
 
@@ -132,20 +138,17 @@ class FidoRepository {
                 is PendingOp.ListFingerprints -> {
                     val sensor = runCatching { client.getFingerprintSensorInfo() }.getOrNull()
                     val list = client.listFingerprints(op.pin)
-                    cachedFingerprints = list
                     OpResult.Fingerprints(list, sensor)
                 }
                 is PendingOp.RenameFingerprint -> {
                     client.renameFingerprint(op.pin, op.templateId, op.newName)
                     val list = runCatching { client.listFingerprints(op.pin) }.getOrDefault(emptyList())
-                    cachedFingerprints = list
                     pending = PendingOp.ListFingerprints(op.pin)
                     OpResult.Fingerprints(list, message = "Renamed.")
                 }
                 is PendingOp.RemoveFingerprint -> {
                     client.removeFingerprint(op.pin, op.templateId)
                     val list = runCatching { client.listFingerprints(op.pin) }.getOrDefault(emptyList())
-                    cachedFingerprints = list
                     pending = PendingOp.ListFingerprints(op.pin)
                     OpResult.Fingerprints(list, message = "Fingerprint removed.")
                 }
@@ -153,7 +156,6 @@ class FidoRepository {
                     client.reset()
                     // Authenticator is back to factory state: no credentials, no PIN.
                     cachedPasskeys = emptyList()
-                    cachedFingerprints = emptyList()
                     forgetPin()
                     pending = PendingOp.ReadInfo
                     OpResult.Success("FIDO2 reset complete. All passkeys erased and PIN removed.")

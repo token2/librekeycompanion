@@ -67,6 +67,7 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/rememberRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -85,6 +86,7 @@
     </LinearLayout>
 
     <TextView
+        android:id="@+id/rememberNotice"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/pin_remember_notice"

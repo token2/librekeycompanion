@@ -127,13 +127,15 @@ class MdsRepository(private val appContext: Context) {
             val aaguid = (e.optString("aaguid", null) ?: ms.optString("aaguid", null)) ?: continue
             val name = ms.optString("description", "Unknown authenticator")
             val icon = ms.optString("icon", null)
-            // Highest/most-recent certification from statusReports.
+            // Most-recent certification from statusReports. MDS3 lists reports
+            // newest-first (e.g. [FIDO_CERTIFIED_L1, FIDO_CERTIFIED]), so the
+            // first FIDO_CERTIFIED* entry is the current level.
             var cert: String? = null
             val reports = e.optJSONArray("statusReports")
             if (reports != null) {
                 for (r in 0 until reports.length()) {
                     val status = reports.optJSONObject(r)?.optString("status") ?: continue
-                    if (status.startsWith("FIDO_CERTIFIED")) cert = status
+                    if (status.startsWith("FIDO_CERTIFIED")) { cert = status; break }
                 }
             }
             out[normalize(aaguid)] = Entry(normalize(aaguid), name, cert, icon)

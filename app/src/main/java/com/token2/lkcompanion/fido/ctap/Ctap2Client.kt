@@ -7,19 +7,44 @@ import com.token2.lkcompanion.transport.SmartCardTransport
 class CtapError(val code: Int) : Exception("CTAP error 0x${"%02X".format(code)}: ${name(code)}") {
     companion object {
         fun name(c: Int) = when (c) {
+            0x01 -> "INVALID_COMMAND"
+            0x02 -> "INVALID_PARAMETER"
+            0x11 -> "CBOR_UNEXPECTED_TYPE"
+            0x12 -> "INVALID_CBOR"
+            0x14 -> "MISSING_PARAMETER"
+            0x15 -> "LIMIT_EXCEEDED"
+            0x17 -> "FP_DATABASE_FULL"
+            0x19 -> "CREDENTIAL_EXCLUDED"
+            0x21 -> "PROCESSING"
+            0x22 -> "INVALID_CREDENTIAL"
+            0x23 -> "USER_ACTION_PENDING"
+            0x24 -> "OPERATION_PENDING"
+            0x25 -> "NO_OPERATIONS"
+            0x26 -> "UNSUPPORTED_ALGORITHM"
+            0x27 -> "OPERATION_DENIED"
+            0x28 -> "KEY_STORE_FULL"
+            0x2B -> "UNSUPPORTED_OPTION"
+            0x2C -> "INVALID_OPTION"
+            0x2D -> "KEEPALIVE_CANCEL"
+            0x2E -> "NO_CREDENTIALS"
+            0x2F -> "USER_ACTION_TIMEOUT"
+            0x30 -> "NOT_ALLOWED"
             0x31 -> "PIN_INVALID"
             0x32 -> "PIN_BLOCKED"
             0x33 -> "PIN_AUTH_INVALID"
             0x34 -> "PIN_AUTH_BLOCKED"
             0x35 -> "PIN_NOT_SET"
-            0x36 -> "PUAT_REQUIRED / PIN_REQUIRED"
+            0x36 -> "PUAT_REQUIRED"
             0x37 -> "PIN_POLICY_VIOLATION"
-            0x3B -> "NO_CREDENTIALS"
-            0x2B -> "KEY_STORE_FULL"
-            0x27 -> "CREDENTIAL_EXCLUDED"
-            0x2D -> "NOT_ALLOWED"
-            0x2E -> "INVALID_OPTION"
-            0x19 -> "OPERATION_DENIED"
+            0x38 -> "PIN_TOKEN_EXPIRED"
+            0x39 -> "REQUEST_TOO_LARGE"
+            0x3A -> "ACTION_TIMEOUT"
+            0x3B -> "UP_REQUIRED"
+            0x3C -> "UV_BLOCKED"
+            0x3D -> "INTEGRITY_FAILURE"
+            0x3E -> "INVALID_SUBCOMMAND"
+            0x3F -> "UV_INVALID"
+            0x40 -> "UNAUTHORIZED_PERMISSION"
             else -> "see CTAP spec"
         }
     }
@@ -104,6 +129,7 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         val pinProtocols: List<Int>,
         val aaguidHex: String?,
         val minPinLength: Int?,
+        val remainingDiscCreds: Int? = null,
     ) {
         val isFido2 get() = versions.any { it.startsWith("FIDO_2") }
         val clientPinSet get() = options["clientPin"] == true
@@ -112,12 +138,16 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         val supportsConfig get() = options["authnrCfg"] == true
         /** True if the key accepts permission-scoped tokens (0x09); else use legacy 0x05. */
         val supportsPinUvAuthToken get() = options["pinUvAuthToken"] == true
-        /** Fingerprint enrollment support (CTAP2.1 authenticatorBioEnrollment). */
+        /** Fingerprint enrollment support (CTAP2.1 authenticatorBioEnrollment).
+         *  Presence of the option KEY signals support; its VALUE means whether any
+         *  fingerprint is currently enrolled (e.g. YubiKey Bio reports bioEnroll:false
+         *  until the first template exists) — so check containsKey, not == true,
+         *  matching python-fido2's BioEnrollment.is_supported. */
         val supportsBioEnroll get() =
-            options["bioEnroll"] == true || options["userVerificationMgmtPreview"] == true
+            options.containsKey("bioEnroll") || options.containsKey("userVerificationMgmtPreview")
         /** True if the key uses the preview/prototype bio command (0x40) rather than 0x09. */
         val bioUsesPreview get() =
-            options["bioEnroll"] != true && options["userVerificationMgmtPreview"] == true
+            !options.containsKey("bioEnroll") && options.containsKey("userVerificationMgmtPreview")
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -131,7 +161,9 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         val protos = (m[6] as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: listOf(1)
         val aaguid = (m[3] as? ByteArray)?.joinToString("") { "%02x".format(it) }
         val minPin = (m[0x0D] as? Number)?.toInt()
-        return Info(versions, options, protos, aaguid, minPin)
+        // CTAP2.1 remainingDiscoverableCredentials (tag 0x14) — absent on older keys.
+        val remainingDisc = (m[0x14] as? Number)?.toInt()
+        return Info(versions, options, protos, aaguid, minPin, remainingDisc)
     }
 
     // ---- clientPIN ----
@@ -612,8 +644,9 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         0x09 -> "Too short — cover more of the sensor"
         0x0A -> "Merge failure — try again"
         0x0B -> "Already exists — already enrolled"
-        0x0C -> "No user activity"
-        0x0D -> "No finger detected — touch the sensor"
+        0x0C -> "Fingerprint database full"
+        0x0D -> "No user activity"
+        0x0E -> "No up-transition detected"
         else -> "Touch the sensor again"
     }
 

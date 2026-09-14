@@ -246,7 +246,8 @@
         <LinearLayout
             android:id="@+id/passkeyHeaderBar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
+            android:layout_height="wrap_content"
+            android:minHeight="?attr/actionBarSize"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="?attr/colorPrimary"
@@ -298,7 +299,8 @@
         <LinearLayout
             android:id="@+id/fpHeaderBar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
+            android:layout_height="wrap_content"
+            android:minHeight="?attr/actionBarSize"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="?attr/colorPrimary"
