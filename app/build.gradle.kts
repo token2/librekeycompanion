@@ -5,13 +5,13 @@ plugins {
 
 android {
     namespace = "com.token2.lkcompanion"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.token2.lkcompanion"
         minSdk = 26          // API 26: USB Host + modern NFC reader mode
-        targetSdk = 35       // API 35 required by Google Play; enables edge-to-edge
-        versionCode = 39
+        targetSdk = 36      // API 35 required by Google Play; enables edge-to-edge
+        versionCode = 40
         versionName = "1.0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
