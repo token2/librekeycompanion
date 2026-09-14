@@ -159,5 +159,11 @@ sealed class Token2Exception(message: String) : Exception(message) {
         )
     object PinTransportUnavailable :
         Token2Exception("OTP PIN commands require the CCID/NFC transport")
+    /** §1.20: fingerprint-protected OTP — the on-key fingerprint check did not pass. */
+    class FingerprintNotVerified(val sw: Int) :
+        Token2Exception("fingerprint verification failed or timed out (SW=%04X)".format(sw))
+    /** §1.20: enabling FP protection was refused because no fingerprint is enrolled (0x6984). */
+    object NoFingerprintEnrolled :
+        Token2Exception("no fingerprint is enrolled on this key — enroll one via the key's FIDO2 fingerprint setup first")
     class BadStatus(val sw: Int) : Token2Exception("unexpected status %04X".format(sw))
 }

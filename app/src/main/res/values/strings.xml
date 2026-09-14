@@ -25,6 +25,11 @@
     <string name="otp_add_entry">Add entry</string>
     <string name="otp_tap_key_refresh">Tap your key to refresh.</string>
     <string name="otp_scan_qr_code">Scan QR code</string>
+    <string name="otp_scan_qr_prompt">Point the camera at the OTP QR code. Tap to focus.</string>
+    <string name="otp_scan_torch">Torch</string>
+    <string name="otp_unlock_with_fingerprint">Unlock with fingerprint</string>
+    <string name="otp_unlock_or_pin">or enter your PIN</string>
+    <string name="otp_scan_camera_permission">Camera permission is needed to scan QR codes.</string>
     <string name="otp_paste_uri_label">…or paste an otpauth:// URI:</string>
     <!-- Do not translate this URI example -->
     <string name="otp_uri_hint" translatable="false">otpauth://totp/Issuer:user?secret=…</string>

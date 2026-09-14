@@ -17,10 +17,21 @@ class Token2PinRepository {
         data class VerifyPin(val pin: String) : PendingOp()
         data class ChangePin(val current: String, val new: String) : PendingOp()
         data class RemovePin(val current: String) : PendingOp()
+        /**
+         * Switch fingerprint-protected OTP on/off (§1.14 EncConfig / §1.20).
+         * Needs the current PIN: the flag rides on VERIFY_OTP_PIN.
+         */
+        data class SetFingerprintProtection(val pin: String, val enable: Boolean) : PendingOp()
     }
 
     sealed class OpResult {
-        data class Status(val flag: Token2Client.PinFlag) : OpResult()
+        data class Status(
+            val flag: Token2Client.PinFlag,
+            /** §1.11 ext bit 8, or null when the config block didn't come back. */
+            val fingerprintProtectSupported: Boolean?,
+            /** §1.11 cfg bit 4: the key has a fingerprint sensor at all. */
+            val fingerprintPresent: Boolean?,
+        ) : OpResult()
         data class Success(val message: String) : OpResult()
         /** Wrong PIN or window not open; retriesLeft is the fresh count if known. */
         data class WrongPin(val retriesLeft: Int?) : OpResult()
@@ -30,6 +41,8 @@ class Token2PinRepository {
         data class Unsupported(val detail: String) : OpResult()
         /** Command run over a transport that can't carry PIN commands. */
         object WrongTransport : OpResult()
+        /** Enabling FP protection needs an enrolled fingerprint; none is present. */
+        object NoFingerprintEnrolled : OpResult()
         data class Failure(val message: String) : OpResult()
     }
 
@@ -42,7 +55,17 @@ class Token2PinRepository {
     fun executeOn(client: Token2Client): OpResult {
         return try {
             when (val op = pending) {
-                is PendingOp.Status -> OpResult.Status(client.pinStatus())
+                is PendingOp.Status -> {
+                    val flag = client.pinStatus()
+                    // Best effort: the config block may be a byte-0 stub over NFC.
+                    val info = try { client.readConfig() } catch (_: Exception) { null }
+                    val hasCfg = info?.hasConfigByte == true && info.raw.size >= 10
+                    OpResult.Status(
+                        flag,
+                        fingerprintProtectSupported = if (hasCfg) info!!.otpFingerprintProtectSupported else null,
+                        fingerprintPresent = if (hasCfg) info!!.fingerprintPresent else null,
+                    )
+                }
                 is PendingOp.SetPin -> {
                     client.setOtpPin(op.pin.toByteArray(Charsets.UTF_8))
                     OpResult.Success("OTP PIN set.")
@@ -62,6 +85,14 @@ class Token2PinRepository {
                     client.removeOtpPin(op.current.toByteArray(Charsets.UTF_8))
                     OpResult.Success("OTP PIN removed.")
                 }
+                is PendingOp.SetFingerprintProtection -> {
+                    client.verifyOtpPin(op.pin.toByteArray(Charsets.UTF_8), fpEnable = op.enable)
+                    // Don't leave the verify window open behind the user's back.
+                    client.lockOtpPin()
+                    OpResult.Success(
+                        if (op.enable) "Fingerprint protection enabled — a fingerprint is now required to read OTP codes."
+                        else "Fingerprint protection disabled.")
+                }
             }
         } catch (e: Token2Exception.PinNotVerified) {
             // Try to report retries-left by re-reading status (best effort).
@@ -71,6 +102,8 @@ class Token2PinRepository {
             OpResult.Blocked
         } catch (e: Token2Exception.PinUnsupported) {
             OpResult.Unsupported(e.message ?: "SW=${"%04X".format(e.sw)}")
+        } catch (e: Token2Exception.NoFingerprintEnrolled) {
+            OpResult.NoFingerprintEnrolled
         } catch (e: Token2Exception.PinTransportUnavailable) {
             OpResult.WrongTransport
         } catch (e: Token2Exception.PinWrongState) {

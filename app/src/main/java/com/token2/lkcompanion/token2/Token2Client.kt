@@ -62,6 +62,8 @@ class Token2Client private constructor(
         private const val PIN_FLAG_LC_CHALLENGE = 0x29
         /** Lc for the "prime" flag read done before the agreement handshake. */
         private const val PIN_FLAG_LC_PRIME = 0x09
+        /** Bounded fingerprint capture-poll budget (each poll is one round trip). */
+        private const val FP_MAX_POLLS = 600
 
         /** Build over NFC/PC-SC; selects the management applet up front. */
         fun overNfc(transport: SmartCardTransport): Token2Client {
@@ -84,6 +86,17 @@ class Token2Client private constructor(
         fun overHid(hid: Token2HidTransport): Token2Client =
             Token2Client(
                 send = { apdu, buttonWait -> hid.sendCommand(apdu, buttonWait) },
+                isNfc = false,
+            )
+
+        /**
+         * Bare instance for unit-testing pure helpers (e.g. the fingerprint
+         * capture-poll loop). Transports are stubbed and never touched by the
+         * helpers under test. Not for production use.
+         */
+        internal fun overHidForTest(): Token2Client =
+            Token2Client(
+                send = { _, _ -> ByteArray(0) },
                 isNfc = false,
             )
 
@@ -119,6 +132,10 @@ class Token2Client private constructor(
         val fidoDisabled: Boolean,
         val keyboardHidDisabled: Boolean,
         val ccidDisabled: Boolean,
+        /** §1.11 ext byte bit 8: the key can require a fingerprint for OTP generation. */
+        val otpFingerprintProtectSupported: Boolean = false,
+        /** §1.11 ext byte bit 7: OTP generation currently requires fingerprint verification. */
+        val otpFingerprintRequired: Boolean = false,
         val raw: ByteArray,
     ) {
         /** True when the config blob actually carried byte 1 (the capability byte),
@@ -178,6 +195,10 @@ class Token2Client private constructor(
             fidoDisabled = iface and 0x01 != 0,
             keyboardHidDisabled = iface and 0x02 != 0,
             ccidDisabled = iface and 0x04 != 0,
+            // byte 9 (ext): bit7 = fingerprint currently required for OTP,
+            // bit8 = fingerprint-protected OTP supported (§1.11 item 5).
+            otpFingerprintRequired = ext and 0x40 != 0,
+            otpFingerprintProtectSupported = ext and 0x80 != 0,
             raw = resp,
         )
     }
@@ -335,11 +356,22 @@ class Token2Client private constructor(
         val retriesLeft: Int,
         val pinLen: Int,
         val maxRetries: Int,
+        /** §1.12 byte 4 `FpEnable`: fingerprint-protected OTP is switched on. Null if the read was too short. */
+        val fpEnable: Boolean?,
         /** (IV, EncRand), present only on the Lc=0x29 read. */
         val challenge: Pair<ByteArray, ByteArray>?,
     ) {
         val isSet: Boolean get() = pinLen > 0
     }
+
+    /**
+     * Last-seen fingerprint-protection flag for this connection, refreshed by
+     * every PIN-flag read (status / prime / challenge). Lets the repository
+     * know, after [verifyOtpPin], whether a §1.20 fingerprint check is also
+     * needed before codes can be read.
+     */
+    @Volatile var fingerprintProtectionEnabled: Boolean? = null
+        private set
 
     private fun raw(apdu: ByteArray): Pair<ByteArray, Int> {
         val fn = sendRaw ?: throw Token2Exception.PinTransportUnavailable
@@ -386,11 +418,13 @@ class Token2Client private constructor(
             retriesLeft = at(1),
             pinLen = at(2),
             maxRetries = at(3),
+            fpEnable = if (data.size >= 5) at(4) == 0x01 else null,
             challenge = if (data.size >= 41) {
                 // On the Lc=0x29 read: IV(16) EncRand(16) starting at offset 9.
                 Pair(data.copyOfRange(9, 25), data.copyOfRange(25, 41))
             } else null,
         )
+        flag.fpEnable?.let { fingerprintProtectionEnabled = it }
         return flag
     }
 
@@ -437,8 +471,12 @@ class Token2Client private constructor(
         checkPin(sw, "set-pin")
     }
 
-    /** VERIFY_OTP_PIN — opens the read window for this connection. */
-    fun verifyOtpPin(pin: ByteArray) {
+    /**
+     * VERIFY_OTP_PIN — opens the read window for this connection.
+     * `fpEnable`, when non-null, also sets/clears the fingerprint-protected-OTP
+     * flag in the same command via the optional EncConfig block (§1.14 / §1.20).
+     */
+    fun verifyOtpPin(pin: ByteArray, fpEnable: Boolean? = null) {
         val keys = openPinSession()
         val (data, sw) = raw(readPinFlagApdu(PIN_FLAG_LC_CHALLENGE))
         checkPin(sw, "verify-challenge-read")
@@ -446,9 +484,59 @@ class Token2Client private constructor(
         val ch = flag.challenge ?: throw Token2Exception.BadStatus(sw)
         val rand = Token2PinCrypto.sessionDecryptRaw(keys.enc, ch.first, ch.second)
         if (rand.size != 16) throw Token2Exception.BadStatus(sw)
-        val proof = Token2PinCrypto.buildVerifyPinData(keys, pin, rand)
+        val proof = Token2PinCrypto.buildVerifyPinData(keys, pin, rand, fpEnable)
         val (_, vsw) = raw(pinApdu(VERIFY_OTP_PIN, proof))
+        // Enabling FP protection with no enrolled fingerprint is refused with
+        // 0x6984 ("reference data not usable"). Surface it as a clear "enroll a
+        // fingerprint first" rather than a generic wrong-PIN (matches keyroost).
+        if (fpEnable == true && vsw == 0x6984) throw Token2Exception.NoFingerprintEnrolled
         checkPin(vsw, "verify-proof")
+        if (fpEnable != null) fingerprintProtectionEnabled = fpEnable
+        pinSession = keys   // retain for decrypting protected enumerate/read pages
+    }
+
+    /**
+     * §1.20 fingerprint verification: `80 C5 05 06 01 01` (same header as the
+     * PIN-lock command, body 0x01 instead of 0x00). The key waits for a finger
+     * on its sensor and answers 9000 once matched; the OTP permissions are then
+     * granted for this connection. Anything else is surfaced as
+     * [Token2Exception.FingerprintNotVerified] so the UI can ask for a retry.
+     * Practically usable over USB-CCID; over NFC the user must keep the key on
+     * the phone while touching the sensor.
+     */
+    fun verifyOtpFingerprint() {
+        // A fingerprint unlock still reads codes over the ECDH-encrypted session
+        // (the touch authorizes; the session keys still encrypt the enumerate
+        // pages). Establish the session first, or the protected pages can't be
+        // decrypted. Matches the keyroost reference (verify_fingerprint).
+        val keys = openPinSession()
+
+        // Start the capture: 80 C5 05 06 01 01. The device answers 0x9100
+        // ("capture in progress"), NOT 0x9000 — then the host polls with
+        // 80 11 00 00 00 until 0x9000 (touch captured) or an error. A one-shot
+        // read that expects 0x9000 immediately would wrongly fail here.
+        val startApdu = byteArrayOf(
+            VERIFY_OTP_PIN[0].toByte(), VERIFY_OTP_PIN[1].toByte(),
+            VERIFY_OTP_PIN[2].toByte(), VERIFY_OTP_PIN[3].toByte(),
+            0x01, 0x01,
+        )
+        val pollApdu = byteArrayOf(0x80.toByte(), 0x11, 0x00, 0x00, 0x00)
+
+        // Drive the capture-poll state machine over the raw transport, then map
+        // the terminal status word. Kept in a pure helper so the 0x9100-poll
+        // sequencing is unit-testable without a live ECDH session.
+        val terminal = pollFingerprintCapture(
+            start = { raw(startApdu).second },
+            poll = { raw(pollApdu).second },
+        )
+        when (terminal) {
+            0x9000 -> { /* captured — window open */ }
+            // 0x6FFA is the fingerprint counterpart of the button-timeout word:
+            // capture failed or the sensor wasn't touched in time.
+            0x6FFA -> throw Token2Exception.FingerprintNotVerified(terminal)
+            0x6A86, 0x6AF8 -> throw Token2Exception.PinUnsupported(terminal, "fingerprint-verify")
+            else -> checkPin(terminal, "fingerprint-verify")   // 6982 = FP protection not enabled, etc.
+        }
         pinSession = keys   // retain for decrypting protected enumerate/read pages
     }
 
@@ -479,6 +567,26 @@ class Token2Client private constructor(
             0x01, 0x00,
         )
         try { fn(apdu) } catch (_: Exception) { /* best effort */ }
+    }
+
+    /**
+     * Pure fingerprint capture-poll loop (manual §1.20 / keyroost reference):
+     * send the start APDU, then poll while the device answers 0x9100 ("capture
+     * in progress") until it returns a terminal status word (0x9000 on a
+     * captured touch, or an error). Bounded by [FP_MAX_POLLS] so a sensor that
+     * is never touched cannot spin forever. Some firmware/replay traces answer
+     * 0x9000 to the start APDU directly, in which case no poll happens.
+     * Returns the terminal SW for the caller to map.
+     */
+    internal fun pollFingerprintCapture(start: () -> Int, poll: () -> Int): Int {
+        var sw = start()
+        var polls = 0
+        while (sw == 0x9100) {
+            if (polls >= FP_MAX_POLLS) return 0x6FFA   // treat as capture timeout
+            polls++
+            sw = poll()
+        }
+        return sw
     }
 
     private fun pinApdu(cmd: IntArray, data: ByteArray): ByteArray {
