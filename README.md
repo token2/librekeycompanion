@@ -174,6 +174,7 @@ credential-provider app such as [Authnkey](https://github.com/mimi89999/Authnkey
 
 <img width="425" height="539" alt="image" src="https://github.com/user-attachments/assets/8eb7cc5f-b6ff-44ac-af51-8a1d9ef2655a" />
 
+---
 
 <img width="425"  alt="image" src="https://github.com/user-attachments/assets/5cf90b2b-cc96-41de-a015-da10448d4b4c" />
 
