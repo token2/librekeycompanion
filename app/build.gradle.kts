@@ -41,10 +41,10 @@ dependencies {
     // separate landscape-locked activity on the legacy Camera1 API (issue #23:
     // 90° rotated preview, flaky autofocus, and the Add dialog being torn down
     // while the scanner was in front).
-    implementation("androidx.camera:camera-core:1.3.4")
-    implementation("androidx.camera:camera-camera2:1.3.4")
-    implementation("androidx.camera:camera-lifecycle:1.3.4")
-    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.camera:camera-core:1.4.2")
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
     implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
 }
