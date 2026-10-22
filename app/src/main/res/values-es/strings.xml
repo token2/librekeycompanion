@@ -77,4 +77,9 @@
     <string name="menu_yubikey_apps">Aplicaciones (YubiKey)</string>
     <string name="menu_usb_diagnostics">Diagnósticos USB</string>
     <string name="menu_about">Acerca de</string>
+    <string name="manage_passkeys">Gestionar passkeys</string>
+    <string name="manage_passkeys_hint">Muestra todas las passkeys guardadas en la llave, con detalles y opción de eliminar. Se te pedirá el PIN de la llave.</string>
+    <string name="keypad_show">Mostrar teclado numérico</string>
+    <string name="keypad_hide">Ocultar teclado numérico</string>
+    <string name="keypad_note">Hay un dispositivo de teclado conectado (normalmente el canal HID-HOTP de la llave), por lo que el teléfono puede ocultar su teclado. Usa este teclado o desactiva HID-HOTP en el menú.</string>
 </resources>

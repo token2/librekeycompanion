@@ -4,12 +4,14 @@
         android:id="@+id/nav_info"
         android:icon="@drawable/ic_info"
         android:title="@string/nav_info" />
+    <!-- Passkeys sit next to Info: managing individual FIDO2 credentials is the
+         app's headline feature. -->
+    <item
+        android:id="@+id/nav_fido"
+        android:icon="@drawable/ic_key"
+        android:title="@string/passkeys_title" />
     <item
         android:id="@+id/nav_totp"
         android:icon="@drawable/ic_timer"
         android:title="@string/nav_otp" />
-    <item
-        android:id="@+id/nav_fido"
-        android:icon="@drawable/ic_key"
-        android:title="@string/nav_fido2" />
 </menu>

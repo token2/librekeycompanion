@@ -77,4 +77,9 @@
     <string name="menu_yubikey_apps">Anwendungen (YubiKey)</string>
     <string name="menu_usb_diagnostics">USB-Diagnose</string>
     <string name="menu_about">Über</string>
+    <string name="manage_passkeys">Passkeys verwalten</string>
+    <string name="manage_passkeys_hint">Zeigt alle auf dem Schlüssel gespeicherten Passkeys mit Details und Löschfunktion. Sie werden nach der PIN des Schlüssels gefragt.</string>
+    <string name="keypad_show">Ziffernblock anzeigen</string>
+    <string name="keypad_hide">Ziffernblock ausblenden</string>
+    <string name="keypad_note">Ein Tastaturgerät ist angeschlossen (meist der HID-HOTP-Kanal des eingesteckten Schlüssels), daher blendet das Telefon seine Tastatur eventuell aus. Nutzen Sie diesen Ziffernblock oder schalten Sie HID-HOTP im Menü aus.</string>
 </resources>

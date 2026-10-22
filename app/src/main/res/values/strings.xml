@@ -81,4 +81,9 @@
     <string name="otp_lock_toggle">Lock or unlock OTP codes</string>
     <string name="menu_usb_diagnostics">USB diagnostics</string>
     <string name="menu_about">About</string>
+    <string name="manage_passkeys">Manage passkeys</string>
+    <string name="manage_passkeys_hint">Lists every passkey stored on the key, with details and delete. You\'ll be asked for the key\'s PIN.</string>
+    <string name="keypad_show">Show number pad</string>
+    <string name="keypad_hide">Hide number pad</string>
+    <string name="keypad_note">A keyboard device is attached (usually the plugged-in key\'s HID-HOTP channel), so the phone may hide its keyboard. Use this pad, or turn HID-HOTP off in the menu.</string>
 </resources>
