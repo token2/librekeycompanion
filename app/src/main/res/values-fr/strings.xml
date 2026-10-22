@@ -77,4 +77,9 @@
     <string name="menu_yubikey_apps">Applications (YubiKey)</string>
     <string name="menu_usb_diagnostics">Diagnostics USB</string>
     <string name="menu_about">À propos</string>
+    <string name="manage_passkeys">Gérer les clés d\'accès</string>
+    <string name="manage_passkeys_hint">Affiche toutes les clés d\'accès enregistrées sur la clé, avec détails et suppression. Le code PIN de la clé vous sera demandé.</string>
+    <string name="keypad_show">Afficher le pavé numérique</string>
+    <string name="keypad_hide">Masquer le pavé numérique</string>
+    <string name="keypad_note">Un clavier est connecté (en général le canal HID-HOTP de la clé branchée), le téléphone peut donc masquer son clavier. Utilisez ce pavé ou désactivez HID-HOTP dans le menu.</string>
 </resources>

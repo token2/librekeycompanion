@@ -198,6 +198,28 @@
                 android:padding="16dp"
                 android:visibility="gone">
 
+                <!-- Passkeys first: listing and deleting individual credentials is
+                     what most people open this tab for, so it's one tap away and
+                     works without reading the key first. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnManagePasskeys"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="56dp"
+                    android:text="@string/manage_passkeys"
+                    android:textSize="16sp"
+                    app:icon="@drawable/ic_id"
+                    app:iconGravity="textStart" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:paddingHorizontal="4dp"
+                    android:textSize="12sp"
+                    android:alpha="0.7"
+                    android:text="@string/manage_passkeys_hint" />
+
                 <LinearLayout
                     android:id="@+id/fidoCard"
                     android:layout_width="match_parent"

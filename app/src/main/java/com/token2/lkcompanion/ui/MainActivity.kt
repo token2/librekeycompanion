@@ -196,6 +196,19 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         infoStatusCard = StatusCard(infoCard)
         infoStatusCard.renderHint("Tap your key to the phone to see what it supports.")
         fidoStatusCard.renderHint("Tap your key to read FIDO2 status.")
+        // Fingerprint options are offered only on keys FIDO2 reports as bio.
+        repo.bioSensorHint = { fidoRepo.lastInfo?.supportsBioEnroll }
+        // Straight to the passkey list — no need to read the key's status first.
+        findViewById<View>(R.id.btnManagePasskeys).setOnClickListener {
+            val info = fidoRepo.lastInfo
+            when {
+                info != null && !info.clientPinSet ->
+                    toast("This key has no FIDO2 PIN yet. Set one first, then manage passkeys.")
+                info != null && !info.supportsCredMgmt ->
+                    toast("This key doesn't support managing individual passkeys.")
+                else -> openPasskeyScreen()
+            }
+        }
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
 
@@ -887,8 +900,8 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
                 is Token2Repository.OpResult.Failure ->
                     armedHint.text = "Failed: ${result.message}"
                 is Token2Repository.OpResult.Config -> {
-                    otpFingerprintCapable =
-                        result.iface.otpFingerprintProtectSupported && result.iface.fingerprintPresent
+                    otpFingerprintCapable = result.iface.otpFingerprintProtectSupported &&
+                        (fidoRepo.lastInfo?.supportsBioEnroll ?: result.iface.fingerprintPresent)
                     adapter.submit(repo.cachedEntries)
                     showInterfaceDialog(result.iface)
                 }
@@ -958,8 +971,10 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         }
         val info = android.widget.TextView(ctx).apply {
             text = "Enable or disable the key's keyboard-HID interface, which types " +
-                "HOTP codes on a button touch. FIDO2 and the smart-card interface " +
-                "are left untouched. Re-plug the key for the change to take effect."
+                "HOTP codes on a button touch. While it's on, the phone may treat the " +
+                "plugged-in key as a keyboard and hide the on-screen keyboard. " +
+                "HID-HOTP is off by default from Release 3.3. Re-plug the key for " +
+                "the change to take effect."
             textSize = 14f
             setPadding(0, 0, 0, pad)
         }
@@ -967,16 +982,32 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             text = "Keyboard-HID enabled (HOTP-on-touch)"
             isChecked = state.keyboard
         }
+        // FIDO and CCID: status only. Switching them off can cut off browsers or
+        // this app's own USB access, so that stays with the desktop tools.
+        fun onOff(on: Boolean) = if (on) "on" else "off"
+        val others = android.widget.TextView(ctx).apply {
+            text = "FIDO: ${onOff(state.fido)}    CCID (smart card): ${onOff(state.ccid)}\n" +
+                "These normally stay on. If you ever need to change them, use " +
+                "Token2 Key Manager on a computer."
+            textSize = 13f
+            alpha = 0.7f
+            setPadding(0, pad / 2, 0, 0)
+        }
         container.addView(info)
         container.addView(cb)
+        container.addView(others)
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(ctx)
             .setTitle("HID-HOTP interface")
             .setView(container)
             .setPositiveButton("Apply") { _, _ ->
                 val kbd = cb.isChecked
-                if (kbd == state.keyboard) armedHint.text = "No change to apply."
-                else confirmInterfaceChange(state, kbd)
+                val enabled = listOf(state.fido, kbd, state.ccid).count { it }
+                when {
+                    kbd == state.keyboard -> armedHint.text = "No change to apply."
+                    enabled < 2 -> toast("At least two channels must stay on. Turn FIDO or CCID back on from a computer first.")
+                    else -> confirmInterfaceChange(state, kbd)
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -995,9 +1026,10 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
                     "Re-plug the key afterwards for the change to take effect."
             )
             .setPositiveButton("Reconfigure") { _, _ ->
-                // FIDO and CCID stay enabled; only keyboard varies.
+                // Only keyboard varies; FIDO and CCID are sent exactly as the key
+                // reported them, so this never changes them.
                 repo.arm(Token2Repository.PendingOp.SetInterfaces(
-                    fido = true, keyboard = keyboard, ccid = true))
+                    fido = before.fido, keyboard = keyboard, ccid = before.ccid))
                 // USB-only: drive the write over the already-plugged key.
                 if (connectedUsbDevice != null) rereadUsbForCurrentTab()
                 else toast("Plug the Token2 key into USB to apply.")
@@ -1277,8 +1309,9 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             hideNfcOverlay()
             when (result) {
                 is PinResult.Status -> {
+                    // Unknown sensor (null) no longer counts as present.
                     otpFingerprintCapable = (result.fingerprintProtectSupported == true) &&
-                        (result.fingerprintPresent != false)
+                        (fidoRepo.lastInfo?.supportsBioEnroll ?: (result.fingerprintPresent == true))
                     showPinStatusDialog(
                         result.flag, result.fingerprintProtectSupported, result.fingerprintPresent)
                 }
@@ -1340,9 +1373,11 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
         // The switch is offered only when the key reports the capability (or the
         // flag is already on, so it can always be turned off again).
+        // Only on keys with a fingerprint sensor (FIDO2 getInfo when known, else
+        // the config bit). An unknown sensor, or the flag byte alone, isn't enough.
         val fpOn = flag.fpEnable == true
-        val fpOffered = flag.isSet && (fpOn ||
-            (fpProtectSupported == true && fpPresent != false))
+        val hasSensor = fidoRepo.lastInfo?.supportsBioEnroll ?: (fpPresent == true)
+        val fpOffered = flag.isSet && hasSensor && (fpOn || fpProtectSupported == true)
         if (fpOffered) {
             val sw = android.widget.Switch(this).apply {
                 text = "Require fingerprint to read OTP codes"
@@ -1448,6 +1483,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         onOk: (old: String, new: String, confirm: String) -> Unit,
     ) {
         val view = layoutInflater.inflate(R.layout.dialog_pin, null)
+        attachPinKeypad(view)
         val tilOld = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilOld)
         val tilNew = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilNew)
         val tilConfirm = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilConfirm)
@@ -1541,6 +1577,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         }
 
         val view = layoutInflater.inflate(R.layout.dialog_pin, null)
+        attachPinKeypad(view)
         view.findViewById<View>(R.id.tilOld).visibility = View.GONE
         view.findViewById<View>(R.id.tilConfirm).visibility = View.GONE
         // Hide the shared layout's session-only "remember" row (its notice says
@@ -2362,6 +2399,17 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             chipState = if (i.isFido2) StatusCard.State.SUCCESS else StatusCard.State.NEUTRAL,
         ))
 
+        // Passkeys right after the device row — the most-used action on this card.
+        rows.add(StatusCard.Row(
+            iconRes = R.drawable.ic_id,
+            label = "Credential management",
+            secondary = "passkeys",
+            chipText = if (i.supportsCredMgmt) "Yes" else "No",
+            chipState = if (i.supportsCredMgmt) StatusCard.State.SUCCESS else StatusCard.State.NEUTRAL,
+            actionText = if (i.supportsCredMgmt) "Manage" else null,
+            onAction = if (i.supportsCredMgmt) { { openPasskeyScreen() } } else null,
+        ))
+
         // AAGUID — its own row with a copy button.
         rows.add(StatusCard.Row(
             iconRes = R.drawable.ic_info,
@@ -2410,17 +2458,6 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
                     }
                 }
             } else null,
-        ))
-
-        // Credential management — Manage button opens the passkey screen
-        rows.add(StatusCard.Row(
-            iconRes = R.drawable.ic_id,
-            label = "Credential management",
-            secondary = "passkeys",
-            chipText = if (i.supportsCredMgmt) "Yes" else "No",
-            chipState = if (i.supportsCredMgmt) StatusCard.State.SUCCESS else StatusCard.State.NEUTRAL,
-            actionText = if (i.supportsCredMgmt) "Manage" else null,
-            onAction = if (i.supportsCredMgmt) { { openPasskeyScreen() } } else null,
         ))
 
         // Remaining discoverable-credential capacity (CTAP2.1 getInfo tag 0x14).
@@ -2785,10 +2822,85 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         field.setSelection(field.text?.length ?: 0)
     }
 
+    /**
+     * True when an external keyboard device is attached. A security key with its
+     * HID-HOTP channel on enumerates as one, and with the default "show virtual
+     * keyboard" setting the phone then hides its on-screen keyboard.
+     */
+    private fun externalKeyboardAttached(): Boolean {
+        val c = resources.configuration
+        if (c.keyboard != Configuration.KEYBOARD_NOKEYS &&
+            c.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO) return true
+        if (android.os.Build.VERSION.SDK_INT < 29) return false
+        return android.view.InputDevice.getDeviceIds().any { id ->
+            val d = android.view.InputDevice.getDevice(id) ?: return@any false
+            !d.isVirtual && d.isExternal &&
+                (d.sources and android.view.InputDevice.SOURCE_KEYBOARD) == android.view.InputDevice.SOURCE_KEYBOARD
+        }
+    }
+
+    /**
+     * Wire the number-pad fallback in an inflated dialog_pin view. The pad types
+     * into whichever PIN field has focus (else the first visible one). It opens
+     * by itself when an external keyboard is attached and can be toggled by hand.
+     */
+    private fun attachPinKeypad(root: View) {
+        val fields = listOf(R.id.pinOld, R.id.pinNew, R.id.pinConfirm)
+            .mapNotNull { root.findViewById<com.google.android.material.textfield.TextInputEditText>(it) }
+        val host = root.findViewById<android.widget.LinearLayout>(R.id.keypadHost) ?: return
+        val toggle = root.findViewById<TextView>(R.id.keypadToggle)
+        val note = root.findViewById<TextView>(R.id.keypadNote)
+
+        fun target(): com.google.android.material.textfield.TextInputEditText? =
+            fields.firstOrNull { it.hasFocus() } ?: fields.firstOrNull { it.isShown }
+
+        val gap = (6 * resources.displayMetrics.density).toInt()
+        val rows = listOf(listOf("1", "2", "3"), listOf("4", "5", "6"),
+                          listOf("7", "8", "9"), listOf("", "0", "⌫"))
+        for (row in rows) {
+            val line = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            for (key in row) {
+                val lp = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(gap / 2, gap / 2, gap / 2, gap / 2)
+                    }
+                if (key.isEmpty()) { line.addView(View(this), lp); continue }
+                val btn = com.google.android.material.button.MaterialButton(
+                    this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle,
+                ).apply {
+                    text = key
+                    textSize = 18f
+                    isFocusable = false          // keep focus on the PIN field
+                    setOnClickListener {
+                        val f = target() ?: return@setOnClickListener
+                        val t = f.text ?: return@setOnClickListener
+                        if (key == "⌫") { if (t.isNotEmpty()) t.delete(t.length - 1, t.length) }
+                        else if (t.length < 63) t.append(key)
+                        f.setSelection(t.length)
+                    }
+                }
+                line.addView(btn, lp)
+            }
+            host.addView(line)
+        }
+
+        fun show(on: Boolean) {
+            host.visibility = if (on) View.VISIBLE else View.GONE
+            toggle.setText(if (on) R.string.keypad_hide else R.string.keypad_show)
+        }
+        val external = externalKeyboardAttached()
+        note.visibility = if (external) View.VISIBLE else View.GONE
+        show(external)
+        toggle.setOnClickListener { show(host.visibility != View.VISIBLE) }
+    }
+
     /** PIN button: set (if none) or change (if set). */
     private fun promptPin() {
         val pinAlreadySet = fidoRepo.lastInfo?.clientPinSet == true
         val view = layoutInflater.inflate(R.layout.dialog_pin, null)
+        attachPinKeypad(view)
         val tilOld = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilOld)
         val tilNew = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilNew)
         val tilConfirm = view.findViewById<com.google.android.material.textfield.TextInputLayout>(R.id.tilConfirm)
@@ -2850,6 +2962,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         fidoRepo.rememberedPin?.let { onPin(it); return }
 
         val view = layoutInflater.inflate(R.layout.dialog_pin, null)
+        attachPinKeypad(view)
         // Single-PIN: hide the "current PIN" and "confirm" fields, reuse the "PIN" field.
         view.findViewById<View>(R.id.tilOld).visibility = View.GONE
         view.findViewById<View>(R.id.tilConfirm).visibility = View.GONE

@@ -105,6 +105,13 @@ class Token2Repository {
      */
     @Volatile private var pendingFingerprintOnly: Boolean = false
 
+    /**
+     * Authoritative "this key has a fingerprint sensor" signal when the app has
+     * it (FIDO2 getInfo: bioEnroll present), or null when unknown. The vendor
+     * config bit is not reliable on every model, so it is only a fallback.
+     */
+    @Volatile var bioSensorHint: () -> Boolean? = { null }
+
     /** Supply a PIN to verify on the next read (for a protected key). */
     fun supplyPin(pin: String) { pendingPin = pin }
     fun clearPin() { pendingPin = null; pendingFingerprintOnly = false }
@@ -217,8 +224,12 @@ class Token2Repository {
             // so offer it even when the ext capability byte is conservative or
             // came back as a short stub over this transport.
             val fpFlag = try { client.pinStatus().fpEnable } catch (_: Exception) { null }
-            val fpSupported = (fpCap && info!!.otpFingerprintProtectSupported) || (fpFlag == true)
-            val fpPresent = (fpCap && info!!.fingerprintPresent) || (fpFlag == true)
+            // Sensor first: FIDO2 getInfo when known, else the config bit (only if
+            // the key returned it). The PIN flag byte alone never implies a sensor
+            // — on non-bio keys it must not surface fingerprint options.
+            val fpPresent = bioSensorHint() ?: (fpCap && info!!.fingerprintPresent)
+            val fpSupported = fpPresent &&
+                ((fpCap && info!!.otpFingerprintProtectSupported) || (fpFlag == true))
             if (hadPin) {
                 // Re-read the flag to report how many attempts remain.
                 val flag = try { client.pinStatus() } catch (_: Exception) { null }
