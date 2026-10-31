@@ -30,7 +30,7 @@ contributors.
 >A native iOS port is available at [librekeycompanion_ios](https://github.com/token2/librekeycompanion_ios).
 >Key differences from Android:
 >- **FIDO2 management is NFC-only.** iOS doesn't yet expose a security key's USB HID/CTAPHID interface to third-party apps, so PIN, alwaysUV, and passkey management work over NFC only.
->- **USB-C uses CryptoTokenKit (CCID), not raw USB.** OATH, Token2 OTP, PIV, and OpenPGP read over USB-C; FIDO2 does not.
+>- **USB-C uses CryptoTokenKit (CCID), not raw USB.** OATH, Token2 OTP, PIV, and OpenPGP read over USB-C; FIDO2 only works on keys allowing CTAP over CCID (Token2 R3 or later, and some others).
 >- Otherwise feature-parity: OATH, Token2 on-device OTP, FIDO2, PIV/OpenPGP status, and FIDO MDS lookup.
 
 
