@@ -17,6 +17,9 @@ import com.token2.lkcompanion.token2.Token2Codec
 class Token2EntryAdapter(
     private val onDelete: (Token2Codec.Entry) -> Unit,
     private val onCopy: (Token2Codec.Entry) -> Unit,
+    // Tapped a button-required entry (its code is only revealable over USB with a
+    // physical touch). The activity decides what to do based on the transport.
+    private val onRevealButtonEntry: (Token2Codec.Entry) -> Unit = {},
 ) : RecyclerView.Adapter<Token2EntryAdapter.VH>() {
 
     private var entries: List<Token2Codec.Entry> = emptyList()
@@ -25,6 +28,17 @@ class Token2EntryAdapter(
     fun submit(list: List<Token2Codec.Entry>) {
         entries = list
         notifyDataSetChanged()
+    }
+
+    /** Replace a (button-required) entry with the revealed version carrying its code. */
+    fun revealCode(target: Token2Codec.Entry, revealed: Token2Codec.Entry) {
+        val idx = entries.indexOfFirst {
+            it.appName == target.appName && it.accountName == target.accountName
+        }
+        if (idx >= 0) {
+            entries = entries.toMutableList().also { it[idx] = revealed }
+            notifyItemChanged(idx)
+        }
     }
 
     /** Called by a 1s ticker so the countdown bar animates between taps. */
@@ -52,17 +66,25 @@ class Token2EntryAdapter(
             }
             !e.isTotp -> {
                 holder.code.text = "— — — — — —"
-                holder.meta.text = "HOTP • read with button touch"
+                holder.meta.text = "HOTP • tap: needs USB + button touch"
             }
             else -> {
                 holder.code.text = "— — — — — —"
-                holder.meta.text = "button required"
+                holder.meta.text = "Button-protected • tap: needs USB + touch"
             }
         }
         holder.delete.setOnClickListener { onDelete(e) }
         // Copy is only meaningful when we actually have a code to copy.
         holder.copy.visibility = if (e.otpCode != null) View.VISIBLE else View.GONE
         holder.copy.setOnClickListener { onCopy(e) }
+        // A button-required entry has no code yet; tapping the row explains how to
+        // reveal it (USB + touch), instead of doing nothing.
+        if (e.otpCode == null) {
+            holder.itemView.setOnClickListener { onRevealButtonEntry(e) }
+        } else {
+            holder.itemView.setOnClickListener(null)
+            holder.itemView.isClickable = false
+        }
     }
 
     private fun spaceCode(code: String): String =

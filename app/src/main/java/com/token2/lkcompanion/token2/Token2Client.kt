@@ -249,9 +249,15 @@ class Token2Client private constructor(
 
     /** Read one entry, always including the code (waits for button on HID). */
     fun readEntry(timestampSeconds: Long, app: String, acct: String): Token2Codec.Entry {
-        val resp = send(apduExt(ENUM_CODES,
+        val raw = send(apduExt(ENUM_CODES,
             Token2Codec.serializeReadOne(timestampSeconds, app, acct)), true)
-        return Token2Codec.parseEnumPage(resp, fullDecode = true).first.first()
+        // On a PIN-verified session the READ_ONE response is encrypted
+        // (IV||EncData||Auth) and must be decrypted before parsing — same as
+        // enumerate. (CLI: _maybe_decrypt(...) before unserialize.)
+        val resp = maybeDecryptPage(raw)
+        // READ_ONE uses its own parse (no page-flag masking) matching the desktop
+        // reference exactly; see Token2Codec.parseReadOne.
+        return Token2Codec.parseReadOne(resp)
     }
 
     /**
