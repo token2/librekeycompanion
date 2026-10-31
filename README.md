@@ -214,9 +214,11 @@ matching its **AAGUID** against the
 
 - **Bundled data:** the APK ships with a processed metadata set
   (`res/raw/mds_bundled.json`) so lookups work offline out of the box: hardware
-  authenticators only (software passkey providers dropped via `keyProtection`),
-  certification taken from the newest `statusReports` entry, and every icon
-  normalized to a transparent PNG capped at 96 px (SVG icons are rendered by the
+  authenticators only (software passkey providers dropped via `keyProtection`;
+  roaming keys with an `external` + `wired`/`nfc` `attachmentHint` are kept even
+  when they claim `software`, e.g. Nitrokey 3 AM), certification taken from the newest
+  `statusReports` entry, and every icon normalized to a real transparent PNG
+  capped at 96 px (SVG icons are rendered, and non-PNG bytes re-encoded, by the
   bundler — the app never has to rasterize SVG itself).
 - **In-app update:** *About → Update metadata* downloads the full live MDS BLOB from
   `https://mds3.fidoalliance.org/` (free, no token) and caches it on the device.

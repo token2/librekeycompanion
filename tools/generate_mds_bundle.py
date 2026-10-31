@@ -10,8 +10,12 @@ in-app "Update metadata" cache) — no special packaging:
 Processing pipeline:
   * --hardware-only (default): drop software/platform authenticators
     (keyProtection="software" with no "hardware") — pass --include-software to keep them.
+    Roaming keys on a physical link (attachmentHint "external" + "wired"/"nfc") are
+    always kept: some USB keys, e.g. Nitrokey 3 AM, declare keyProtection=["software"].
   * Icons are normalized: SVG data-URIs are rendered to transparent PNG via resvg_py,
-    and every icon is downscaled so its longest edge is <= 96 px (smaller icons stay).
+    anything that is not really PNG (e.g. JPEG bytes behind a data:image/png prefix)
+    is re-encoded, and every icon is downscaled so its longest edge is <= 96 px
+    (smaller real PNGs stay byte-for-byte).
   * Entries are sorted by attestation root CA so the same vendor's records are
     adjacent — identical icon payloads then sit inside DEFLATE's 32 KB window and
     the APK build compresses the duplicates away for free.
@@ -33,6 +37,7 @@ import argparse, base64, hashlib, io, json, os, re, sys
 
 MDS_URL = "https://mds3.fidoalliance.org/"
 MAX_PX = 96
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
 
 
 def b64url_decode(segment: str) -> bytes:
@@ -89,11 +94,26 @@ def render_svg(svg_text: str, max_px: int):
     return out
 
 
+def is_hardware_authenticator(ms: dict) -> bool:
+    """False only for software/platform authenticators (passkey providers etc.).
+    keyProtection alone is not trusted: a roaming key attached over a physical link
+    (attachmentHint "external" + "wired"/"nfc") is hardware whatever it claims —
+    Nitrokey 3 AM lists ["software"] but is a USB key. "external" + "wireless" is
+    not enough: Egomet's Android app is external/wireless and really is software."""
+    hint = {str(h).lower() for h in ms.get("attachmentHint") or []}
+    if "external" in hint and hint & {"wired", "nfc"}:
+        return True
+    kp = ms.get("keyProtection") or []
+    return not ("software" in kp and "hardware" not in kp)
+
+
 def process_icon(uri: str, max_px: int):
-    """Minimal-touch icon normalization. Only two transformations are ever applied:
-    SVG data-URIs are rendered to PNG, and icons larger than max_px are downscaled.
-    An icon that already fits (a small PNG) is returned byte-for-byte as shipped by
-    the vendor — it is never re-encoded."""
+    """Minimal-touch icon normalization. Only three transformations are ever applied:
+    SVG data-URIs are rendered to PNG, anything whose bytes are not really PNG (the
+    URI prefix is not trusted — CardOS FIDO2 Token ships JPEG behind data:image/png)
+    is re-encoded, and icons larger than max_px are downscaled.
+    An icon that is a real PNG and already fits is returned byte-for-byte as shipped
+    by the vendor — it is never re-encoded."""
     from PIL import Image
     payload = uri.split(",", 1)[1]
     raw = base64.b64decode(payload + "=" * (-len(payload) % 4))
@@ -109,11 +129,12 @@ def process_icon(uri: str, max_px: int):
         return out.getvalue()
     img = Image.open(io.BytesIO(raw))
     w, h = img.size
-    if max(w, h) <= max_px:
-        return raw                                    # already fits — keep as-is
+    if raw.startswith(PNG_SIG) and max(w, h) <= max_px:
+        return raw                                    # real PNG that fits — keep as-is
     img = img.convert("RGBA")
-    scale = max_px / max(w, h)
-    img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+    scale = min(1.0, max_px / max(w, h))
+    if scale < 1.0:
+        img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, "PNG", optimize=True)
     return out.getvalue()
@@ -129,10 +150,8 @@ def build(blob: dict, keep_icons: bool, name_filters, include_software: bool):
         name = ms.get("description", "Unknown authenticator")
         if name_filters and not any(f.lower() in name.lower() for f in name_filters):
             continue
-        if not include_software:
-            kp = ms.get("keyProtection") or []
-            if "software" in kp and "hardware" not in kp:
-                continue  # software/platform authenticator (passkey provider etc.)
+        if not include_software and not is_hardware_authenticator(ms):
+            continue  # software/platform authenticator (passkey provider etc.)
         rec = {"aaguid": aaguid, "description": name}
         cert = best_certification(entry)
         if cert:
