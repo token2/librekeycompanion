@@ -53,18 +53,41 @@ object Token2Codec {
      *
      * @param fullDecode force-include the OTP-code tail (READ_ONE always includes it).
      */
+    /**
+     * Parse a READ_ONE response. Unlike READ_ALL pages, the READ_ONE response has
+     * NO "more pages" flag in byte 0 — byte 0 is the entry's type directly. This
+     * mirrors the desktop reference `parse_entries(d, full=true)` exactly (no
+     * bit7 masking). Applying the page-mask logic here corrupts the offsets and
+     * throws "toIndex > size". Always full-decodes (the code tail is present).
+     */
+    fun parseReadOne(data: ByteArray): Entry {
+        val entries = parseEntryRecords(data, full = true)
+        return entries.lastOrNull() ?: throw ParseException("empty READ_ONE response")
+    }
+
     fun parseEnumPage(data: ByteArray, fullDecode: Boolean = false): Pair<List<Entry>, Boolean> {
         if (data.isEmpty()) return emptyList<Entry>() to false
         val morePages = (data[0].toInt() and 0x80) != 0
-        // Re-inject the masked first byte (bit7 cleared) as the start of the stream.
+        // READ_ALL pages carry a "more pages" flag in bit7 of byte 0; clear it
+        // before parsing the (type) field. READ_ONE has no such flag — it uses
+        // parseReadOne/parseEntryRecords directly, without this masking.
         val stream = data.copyOf()
         stream[0] = (stream[0].toInt() and 0x7F).toByte()
+        return parseEntryRecords(stream, full = fullDecode) to morePages
+    }
 
+    /**
+     * Parse a sequence of entry records (no page flag). Field layout, per the
+     * device protocol and the desktop reference `parse_entries`:
+     *   type(1) algo(1) timestep(2 BE) codeLen(1) button(1) appLen(1) app(appLen)
+     *   acctLen(1) acct(acctLen) [ codeLen(1) code(codeLen) ]?
+     * The code tail is present when `full` (READ_ONE) or for a TOTP without button.
+     */
+    private fun parseEntryRecords(stream: ByteArray, full: Boolean): List<Entry> {
         val entries = ArrayList<Entry>()
         var i = 0
         while (i < stream.size) {
-            // Stop on trailing padding/zero if any remains shorter than a header.
-            if (i + 7 > stream.size) break
+            if (i + 7 > stream.size) break   // trailing padding shorter than a header
             val type = stream[i].toInt() and 0xFF; i++
             val algo = stream[i].toInt() and 0xFF; i++
             val timestep = ((stream[i].toInt() and 0xFF) shl 8) or (stream[i + 1].toInt() and 0xFF); i += 2
@@ -79,7 +102,7 @@ object Token2Codec {
             val acct = String(stream, i, acctLen, Charsets.US_ASCII); i += acctLen
 
             var code: String? = null
-            val hasTail = fullDecode || (type == TYPE_TOTP && btn == 0x00)
+            val hasTail = full || (type == TYPE_TOTP && btn == 0x00)
             if (hasTail) {
                 if (i >= stream.size) throw ParseException("missing otp_code_len")
                 val codeStrLen = stream[i].toInt() and 0xFF; i++
@@ -88,7 +111,7 @@ object Token2Codec {
             }
             entries.add(Entry(type, algo, timestep, codeLen, btn != 0, app, acct, code))
         }
-        return entries to morePages
+        return entries
     }
 
     /** Build the cleartext write payload (§6.3) — encrypted before sending. */

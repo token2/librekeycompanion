@@ -23,6 +23,9 @@ class Token2Repository {
         object Refresh : PendingOp()
         data class Add(val entry: Token2Codec.Entry, val allowOverwrite: Boolean = false) : PendingOp()
         data class Delete(val app: String, val account: String) : PendingOp()
+        /** Reveal a single (button-required) entry's code via READ_ONE. The device
+         *  waits for the physical touch during this read; works over NFC or USB. */
+        data class ReadOne(val app: String, val account: String) : PendingOp()
         /** Read the key's current interface configuration (§6.9). */
         object ReadConfig : PendingOp()
         /**
@@ -184,6 +187,21 @@ class Token2Repository {
                     cachedEntries = entries
                     pending = PendingOp.Refresh
                     OpResult.Success("Deleted ${op.app}/${op.account}", entries)
+                }
+                is PendingOp.ReadOne -> {
+                    verifyIfPending(client)      // open PIN window first on protected keys
+                    // READ_ONE blocks until the user touches the key; the code
+                    // comes back in the single returned entry.
+                    val revealed = client.readEntry(
+                        System.currentTimeMillis() / 1000, op.app, op.account)
+                    // Refresh the list but substitute the revealed entry so its
+                    // code is shown (enumerate alone won't include button codes).
+                    val listed = enumerateSafe(client).map {
+                        if (sameIdentity(it, revealed)) revealed else it
+                    }
+                    cachedEntries = listed
+                    pending = PendingOp.Refresh
+                    OpResult.Success("Revealed ${op.app}/${op.account}", listed)
                 }
                 is PendingOp.ReadConfig -> {
                     val info = client.readConfig()

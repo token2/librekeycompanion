@@ -226,6 +226,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         otpList = findViewById(R.id.otpList)
         otpList.layoutManager = LinearLayoutManager(this)
         adapter = Token2EntryAdapter(
+            onRevealButtonEntry = { entry -> revealButtonEntry(entry) },
             onDelete = { entry -> confirmDelete(entry) },
             onCopy = { entry ->
                 entry.otpCode?.let { code ->
@@ -810,6 +811,25 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         } catch (e: Exception) {
             runOnUiThread { armedHint.text = "Token2 USB-HID failed: ${e.message}" }
         }
+    }
+
+    /**
+     * A button-protected Token2 entry was tapped. Its code is only obtainable over
+     * USB with a physical button touch — the touch sensor does not work over NFC.
+     * If a Token2 key is on USB, read this one entry with the button-wait flow;
+     * otherwise explain the USB requirement instead of failing silently.
+     */
+    /**
+     * A button-protected entry was tapped. Its code is revealed with a READ_ONE,
+     * during which the device waits for the physical button touch — this works
+     * over NFC (hold the key to the phone and touch it) or USB. We arm the
+     * READ_ONE for the next contact, exactly like the other Token2 operations.
+     */
+    private fun revealButtonEntry(entry: com.token2.lkcompanion.token2.Token2Codec.Entry) {
+        repo.arm(Token2Repository.PendingOp.ReadOne(entry.appName, entry.accountName))
+        showNfcOverlay("Hold your key & touch it",
+            "Hold the key to the phone and touch the sensor to reveal the code…")
+        if (connectedUsbDevice != null) rereadUsbForCurrentTab()
     }
 
     // --- on tap: route to the active tab's operation ---
