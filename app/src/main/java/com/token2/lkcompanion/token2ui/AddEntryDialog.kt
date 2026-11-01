@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.Spinner
 import android.widget.Toast
@@ -76,6 +77,7 @@ object AddEntryDialog {
         val algoSpinner = view.findViewById<Spinner>(R.id.spinnerAlgo)
         val periodSpinner = view.findViewById<Spinner>(R.id.spinnerPeriod)
         val scanButton = view.findViewById<Button>(R.id.btnScanQr)
+        val requireTouchCheck = view.findViewById<CheckBox>(R.id.checkRequireTouch)
 
         algoSpinner.adapter = ArrayAdapter(context,
             android.R.layout.simple_spinner_dropdown_item, ALGO_OPTIONS)
@@ -133,6 +135,7 @@ object AddEntryDialog {
                     ).show()
                     return@setOnClickListener
                 }
+                val requireTouch = requireTouchCheck.isChecked
                 val entry = if (importFeitianProperties) {
                     buildFeitianEntry(
                         appField.text.toString(),
@@ -143,6 +146,7 @@ object AddEntryDialog {
                         isHotp = isHotp,
                         digits = digits,
                         counter = if (isHotp) parsedUri?.counter ?: 0L else 0L,
+                        buttonRequired = requireTouch,
                     )
                 } else {
                     buildManual(
@@ -151,6 +155,7 @@ object AddEntryDialog {
                         secretField.text.toString(),
                         algo,
                         period,
+                        buttonRequired = requireTouch,
                     )
                 }
                 if (entry == null) {
@@ -247,8 +252,10 @@ object AddEntryDialog {
 
     /** Build an entry from the (possibly user-edited) manual fields + selectors. */
     fun buildManual(app: String, account: String, secret: String,
-                    algo: HashAlgo, period: Int): Token2Codec.Entry? =
-        buildEntry(app, account, secret, algo, period, isHotp = false, digits = 6)
+                    algo: HashAlgo, period: Int,
+                    buttonRequired: Boolean = false): Token2Codec.Entry? =
+        buildEntry(app, account, secret, algo, period, isHotp = false, digits = 6,
+            buttonRequired = buttonRequired)
 
     /** Feitian-only extension for HOTP and 8-digit credentials. */
     private fun buildFeitianEntry(
@@ -260,9 +267,10 @@ object AddEntryDialog {
         isHotp: Boolean,
         digits: Int,
         counter: Long,
+        buttonRequired: Boolean = false,
     ): Token2Codec.Entry? {
         if (isHotp && counter != 0L) return null
-        return buildEntry(app, account, secret, algo, period, isHotp, digits)
+        return buildEntry(app, account, secret, algo, period, isHotp, digits, buttonRequired)
     }
 
     private fun buildEntry(
@@ -273,6 +281,7 @@ object AddEntryDialog {
         period: Int,
         isHotp: Boolean,
         digits: Int,
+        buttonRequired: Boolean = false,
     ): Token2Codec.Entry? {
         if (account.isBlank() || secret.isBlank()) return null
         val decoded = runCatching { Base32.decode(secret) }.getOrNull() ?: return null
@@ -282,7 +291,7 @@ object AddEntryDialog {
                 Token2Codec.ALG_SHA256 else Token2Codec.ALG_SHA1,
             timestep = period,
             codeLength = digits,
-            buttonRequired = false,
+            buttonRequired = buttonRequired,
             appName = app.trim(),
             accountName = account.trim(),
             seed = decoded,
