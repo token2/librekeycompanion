@@ -39,6 +39,7 @@
     <string name="otp_secret_hint">Base32 secret</string>
     <string name="otp_algorithm">Algorithm</string>
     <string name="otp_period_seconds">Period (s)</string>
+    <string name="otp_require_touch">Require a button press to show the code</string>
     <string name="content_copy_code">Copy code</string>
     <string name="content_delete_entry">Delete entry</string>
 
