@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Libre Key Companion</string>
+    <string name="tap_prompt">Aproxime a chave de segurança na parte de trás do seu celular (NFC) ou conecte-a via USB.</string>
+    <string name="waiting">Aguardando chave de segurança…</string>
+
+    <!-- Common -->
+    <string name="action_back">Voltar</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_refresh">Atualizar</string>
+    <string name="action_copy">Copiar</string>
+
+    <!-- Toolbar / overview -->
+    <string name="content_logo">Logotipo</string>
+    <string name="title_key_overview">Visão geral da chave</string>
+    <string name="hint_tap_present_applet">Toque em um recurso ativo para gerenciar.</string>
+
+    <!-- Navigation -->
+    <string name="nav_info">Info</string>
+    <string name="nav_otp">OTP</string>
+    <string name="nav_fido2">FIDO2</string>
+
+    <!-- OTP -->
+    <string name="otp_on_device">OTP no dispositivo</string>
+    <string name="otp_add_entry">Adicionar conta</string>
+    <string name="otp_tap_key_refresh">Toque na chave para atualizar.</string>
+    <string name="otp_scan_qr_code">Ler QR code</string>
+    <string name="otp_scan_qr_prompt">Aponte a câmera para o QR code OTP. Toque para focar.</string>
+    <string name="otp_scan_torch">Lanterna</string>
+    <string name="otp_unlock_with_fingerprint">Desbloquear com digital</string>
+    <string name="otp_unlock_or_pin">ou digite seu PIN</string>
+    <string name="otp_scan_camera_permission">A permissão da câmera é necessária para ler QR codes.</string>
+    <string name="otp_paste_uri_label">…ou cole um link otpauth://:</string>
+    <!-- Do not translate this URI example -->
+    <string name="otp_uri_hint" translatable="false">otpauth://totp/Issuer:user?secret=…</string>
+    <string name="otp_fill_details">— ou preencha os dados —</string>
+    <string name="otp_issuer_hint">Serviço / app (ex: GitHub)</string>
+    <string name="otp_account_hint">Conta (ex: voce@exemplo.com)</string>
+    <string name="otp_secret_hint">Chave secreta Base32</string>
+    <string name="otp_algorithm">Algoritmo</string>
+    <string name="otp_period_seconds">Período (s)</string>
+    <string name="otp_require_touch">Exigir toque no botão para exibir o código</string>
+    <string name="content_copy_code">Copiar código</string>
+    <string name="content_delete_entry">Excluir conta</string>
+
+    <!-- FIDO / passkeys -->
+    <string name="fido_read_status_hint">Toque na chave para ler o status FIDO2.</string>
+    <string name="passkeys_title">Chaves de acesso</string>
+    <string name="passkeys_load_hint">Toque na chave para carregar as chaves de acesso.</string>
+    <string name="passkey_tap_for_details">Toque para ver detalhes</string>
+    <string name="content_delete_passkey">Excluir chave de acesso</string>
+
+    <!-- Fingerprints -->
+    <string name="fingerprints_title">Digitais</string>
+    <string name="fingerprints_enrolled">Digitais cadastradas</string>
+    <string name="fingerprints_load_hint">Toque na chave para carregar as digitais.</string>
+    <string name="content_fingerprint">Digital</string>
+    <string name="content_add_fingerprint">Adicionar digital</string>
+    <string name="fingerprint_tap_to_rename">Toque para renomear</string>
+    <string name="content_remove_fingerprint">Remover digital</string>
+
+    <!-- NFC overlay -->
+    <string name="content_tap_key">Aproximar chave</string>
+    <string name="nfc_hold_key_title">Encoste a chave no telefone</string>
+    <string name="nfc_waiting_for_tap">Aguardando aproximação NFC…</string>
+
+    <!-- PIN dialog -->
+    <string name="pin_current">PIN atual</string>
+    <string name="pin_label">PIN</string>
+    <string name="pin_confirm">Confirmar PIN</string>
+    <string name="pin_letters_symbols">Letras e símbolos</string>
+    <string name="pin_remember_session">Lembrar PIN nesta sessão</string>
+    <string name="pin_remember_notice">Armazenado apenas na memória, nunca gravado no disco.</string>
+
+    <!-- Menu -->
+    <string name="menu_rescan_key">Verificar chave novamente (limpar e recarregar)</string>
+    <string name="menu_forget_pin">Esquecer PIN salvo</string>
+    <string name="menu_hid_hotp">HID-HOTP (Token2)</string>
+    <string name="menu_yubikey_apps">Aplicações (YubiKey)</string>
+    <string name="menu_otp_pin">PIN de OTP (Token2)</string>
+    <string name="menu_otp_lock">Bloquear códigos OTP</string>
+    <string name="otp_lock_toggle">Bloquear ou desbloquear códigos OTP</string>
+    <string name="menu_usb_diagnostics">Diagnóstico USB</string>
+    <string name="menu_about">Sobre</string>
+    <string name="manage_passkeys">Gerenciar chaves de acesso</string>
+    <string name="manage_passkeys_hint">Lista todas as chaves de acesso gravadas, com detalhes e opção de exclusão. O PIN da chave será solicitado.</string>
+    <string name="keypad_show">Mostrar teclado numérico</string>
+    <string name="keypad_hide">Ocultar teclado numérico</string>
+    <string name="keypad_note">Há um dispositivo de teclado conectado (geralmente a chave via canal HID-HOTP), o que pode fazer o celular ocultar o teclado virtual. Use este teclado na tela ou desative o HID-HOTP no menu.</string>
+</resources>
