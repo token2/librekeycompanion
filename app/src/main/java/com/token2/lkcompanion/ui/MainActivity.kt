@@ -238,6 +238,9 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
                         this, "Code copied", android.widget.Toast.LENGTH_SHORT).show()
                 }
             },
+            // An expired code can only come from the key again: same as the refresh
+            // button (re-reads over USB, asks for a tap over NFC).
+            onRefresh = { refreshOtpEntries() },
         )
         otpList.adapter = adapter
 
@@ -257,11 +260,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             onCalculate = { d -> calculateOath(d) },
         )
         findViewById<android.widget.ImageButton>(R.id.btnRefresh).setOnClickListener {
-            if (!armOtpRefresh()) {
-                toast("Finish or cancel the current OTP operation before refreshing.")
-                return@setOnClickListener
-            }
-            showNfcOverlay("Hold your key to the phone", "Reading OTP entries…")
+            refreshOtpEntries()
         }
         findViewById<android.widget.ImageButton>(R.id.btnOtpLock).setOnClickListener {
             if (otpUnlocked) {
@@ -501,19 +500,26 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         }
     }
 
-    /** 1s ticker drives the TOTP countdown on already-fetched codes. */
+    /** Read the OTP entries again: at once over USB, on the next tap over NFC. */
+    private fun refreshOtpEntries() {
+        if (!armOtpRefresh()) {
+            toast("Finish or cancel the current OTP operation before refreshing.")
+            return
+        }
+        showNfcOverlay("Hold your key to the phone", "Reading OTP entries…")
+    }
+
+    /**
+     * 1s ticker drives the TOTP countdown on already-fetched codes. Both adapters
+     * get the time itself, not a ready-made countdown: each row counts down over
+     * its own period and drops its code once that period is over.
+     */
     private fun startTotpTicker() {
         val handler = android.os.Handler(mainLooper)
         val r = object : Runnable {
             override fun run() {
                 val now = System.currentTimeMillis() / 1000
-                if (otpIsOath) {
-                    oathAdapter.tick(now)
-                } else {
-                    adapter.tick(
-                        com.token2.lkcompanion.oath.OathCore.secondsRemaining(now, 30)
-                    )
-                }
+                if (otpIsOath) oathAdapter.tick(now) else adapter.tick(now)
                 handler.postDelayed(this, 1000)
             }
         }

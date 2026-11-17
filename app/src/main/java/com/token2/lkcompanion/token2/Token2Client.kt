@@ -216,7 +216,9 @@ class Token2Client private constructor(
         try {
             while (true) {
                 val (entries, more) = Token2Codec.parseEnumPage(resp, fullDecode = false)
-                all.addAll(entries)
+                // The codes on this page are for timestampSeconds; keep that with them
+                // so the UI can tell when they stop being current.
+                entries.mapTo(all) { it.readAt(timestampSeconds) }
                 if (!more) break
                 resp = maybeDecryptPage(send(apduExt(ENUM_CODES_CONTINUE, Token2Codec.serializeContinue(timestampSeconds)), false))
             }
@@ -257,7 +259,7 @@ class Token2Client private constructor(
         val resp = maybeDecryptPage(raw)
         // READ_ONE uses its own parse (no page-flag masking) matching the desktop
         // reference exactly; see Token2Codec.parseReadOne.
-        return Token2Codec.parseReadOne(resp)
+        return Token2Codec.parseReadOne(resp).readAt(timestampSeconds)
     }
 
     /**

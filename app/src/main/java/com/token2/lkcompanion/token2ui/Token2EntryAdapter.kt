@@ -11,8 +11,9 @@ import com.token2.lkcompanion.token2.Token2Codec
 
 /**
  * Renders Token2 on-device OTP entries. TOTP codes the device returned are shown
- * with a per-period countdown; HOTP / button-required entries show a placeholder
- * (their code is only available via an explicit read + button touch).
+ * with a countdown over the entry's own timestep, and only while they are still
+ * current (see [token2EntryUiState]); HOTP / button-required entries show a
+ * placeholder (their code is only available via an explicit read + button touch).
  */
 class Token2EntryAdapter(
     private val onDelete: (Token2Codec.Entry) -> Unit,
@@ -20,13 +21,16 @@ class Token2EntryAdapter(
     // Tapped a button-required entry (its code is only revealable over USB with a
     // physical touch). The activity decides what to do based on the transport.
     private val onRevealButtonEntry: (Token2Codec.Entry) -> Unit = {},
+    // Tapped a TOTP entry whose code has expired: read the key again.
+    private val onRefresh: () -> Unit = {},
 ) : RecyclerView.Adapter<Token2EntryAdapter.VH>() {
 
     private var entries: List<Token2Codec.Entry> = emptyList()
-    private var secondsLeft: Int = 30
+    private var unixSeconds: Long = System.currentTimeMillis() / 1000
 
     fun submit(list: List<Token2Codec.Entry>) {
         entries = list
+        unixSeconds = System.currentTimeMillis() / 1000
         notifyDataSetChanged()
     }
 
@@ -41,9 +45,9 @@ class Token2EntryAdapter(
         }
     }
 
-    /** Called by a 1s ticker so the countdown bar animates between taps. */
-    fun tick(secondsRemaining: Int) {
-        secondsLeft = secondsRemaining
+    /** Called by a 1s ticker so countdowns move and expired codes drop out between taps. */
+    fun tick(nowUnixSeconds: Long) {
+        unixSeconds = nowUnixSeconds
         notifyDataSetChanged()
     }
 
@@ -59,10 +63,23 @@ class Token2EntryAdapter(
         val e = entries[position]
         holder.title.text = if (e.appName.isBlank()) e.accountName else e.appName
         holder.subtitle.text = e.accountName
+        val state = token2EntryUiState(e, unixSeconds)
+        val code = e.otpCode
+        // An expired code read without the button can simply be read again. One that
+        // needed the button falls back to its placeholder: it takes another touch.
+        val refreshOnTap = state.expired && !e.buttonRequired
         when {
-            e.otpCode != null -> {
-                holder.code.text = spaceCode(e.otpCode)
-                holder.meta.text = "TOTP • ${e.timestep}s • ${secondsLeft}s left"
+            code != null && state.showCode -> {
+                holder.code.text = spaceCode(code)
+                holder.meta.text = if (e.isTotp) {
+                    "TOTP • ${e.timestep}s • ${state.secondsLeft}s left"
+                } else {
+                    "HOTP"
+                }
+            }
+            refreshOnTap -> {
+                holder.code.text = "— — — — — —"
+                holder.meta.text = "TOTP • expired • tap row to refresh"
             }
             !e.isTotp -> {
                 holder.code.text = "— — — — — —"
@@ -74,16 +91,18 @@ class Token2EntryAdapter(
             }
         }
         holder.delete.setOnClickListener { onDelete(e) }
-        // Copy is only meaningful when we actually have a code to copy.
-        holder.copy.visibility = if (e.otpCode != null) View.VISIBLE else View.GONE
+        // Copy is only meaningful while there is a current code to copy.
+        holder.copy.visibility = if (state.showCode) View.VISIBLE else View.GONE
         holder.copy.setOnClickListener { onCopy(e) }
-        // A button-required entry has no code yet; tapping the row explains how to
-        // reveal it (USB + touch), instead of doing nothing.
-        if (e.otpCode == null) {
-            holder.itemView.setOnClickListener { onRevealButtonEntry(e) }
-        } else {
-            holder.itemView.setOnClickListener(null)
-            holder.itemView.isClickable = false
+        when {
+            state.showCode -> {
+                holder.itemView.setOnClickListener(null)
+                holder.itemView.isClickable = false
+            }
+            refreshOnTap -> holder.itemView.setOnClickListener { onRefresh() }
+            // A button-required entry has no code yet; tapping the row explains how
+            // to reveal it (USB + touch), instead of doing nothing.
+            else -> holder.itemView.setOnClickListener { onRevealButtonEntry(e) }
         }
     }
 

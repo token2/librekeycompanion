@@ -33,9 +33,17 @@ object Token2Codec {
         val accountName: String,
         val otpCode: String? = null,
         val seed: ByteArray? = null,   // only set on writes; never returned by device
+        // Unix time [otpCode] was generated for: the timestamp sent with the read
+        // that returned it. The key computes the code for that time, so this is
+        // what decides when a TOTP code stops being current. Null without a code.
+        val readAtSeconds: Long? = null,
     ) {
         val isTotp: Boolean get() = type == TYPE_TOTP
         val key: Pair<String, String> get() = appName to accountName
+
+        /** This entry as returned by a read made with [timestampSeconds]. */
+        fun readAt(timestampSeconds: Long): Entry =
+            if (otpCode != null) copy(readAtSeconds = timestampSeconds) else this
 
         override fun equals(other: Any?): Boolean =
             other is Entry && type == other.type && appName == other.appName &&
