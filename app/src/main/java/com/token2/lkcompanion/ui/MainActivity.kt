@@ -1533,7 +1533,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(title)
-            .setView(view)
+            .setView(pinDialogBody(null, view))
             .setPositiveButton("OK") { _, _ ->
                 onOk(
                     oldField.text?.toString() ?: "",
@@ -1666,8 +1666,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
                 "present the key again to unlock."
         val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Unlock OTP codes")
-            .setMessage(message)
-            .setView(container)
+            .setView(pinDialogBody(message, container))
             .setPositiveButton("Unlock with PIN") { _, _ ->
                 val pin = field.text?.toString() ?: ""
                 if (pin.isBlank()) { toast("Enter your OTP PIN."); return@setPositiveButton }
@@ -2860,6 +2859,37 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
     }
 
     /**
+     * Body for a PIN dialog: an optional message above [content], scrolling as a
+     * whole. Pass the result to setView() and do not call setMessage().
+     *
+     * The number pad adds four rows and opens by itself whenever a keyboard
+     * device is attached, which a key with an HID interface is. The body can
+     * then be taller than the dialog may grow, and two things used to go wrong:
+     *  - it could not scroll, so whatever did not fit was simply cut off;
+     *  - with both a message and a custom view, AlertDialog measures its panels
+     *    in plain order and gives the button bar whatever height is left, which
+     *    was none. The dialog had no OK or Cancel until the pad was hidden.
+     * Keeping the message in here leaves the custom view as the only middle
+     * panel, so the buttons are measured first and the body scrolls in the rest.
+     */
+    private fun pinDialogBody(message: CharSequence?, content: View): View {
+        val column = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        if (!message.isNullOrEmpty()) {
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            column.addView(TextView(this).apply {
+                text = message
+                textSize = 14f
+                alpha = 0.7f
+                setPadding(pad, pad / 2, pad, 0)
+            })
+        }
+        column.addView(content)
+        return androidx.core.widget.NestedScrollView(this).apply { addView(column) }
+    }
+
+    /**
      * Wire the number-pad fallback in an inflated dialog_pin view. The pad types
      * into whichever PIN field has focus (else the first visible one). It opens
      * by itself when an external keyboard is attached and can be toggled by hand.
@@ -2948,7 +2978,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(if (pinAlreadySet) "Change PIN" else "Set PIN")
-            .setView(view)
+            .setView(pinDialogBody(null, view))
             .setPositiveButton("Apply") { _, _ ->
                 val oldPin = oldField.text?.toString() ?: ""
                 val newPin = newField.text?.toString() ?: ""
@@ -2999,8 +3029,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(title)
-            .setMessage(message)
-            .setView(view)
+            .setView(pinDialogBody(message, view))
             .setPositiveButton("OK") { _, _ ->
                 val pin = field.text?.toString() ?: ""
                 if (pin.isBlank()) toast("Enter the PIN")

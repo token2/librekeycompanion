@@ -190,13 +190,20 @@
             </LinearLayout>
 
             <!-- ===== FIDO2 pane ===== -->
-            <LinearLayout
+            <!-- Scrolls: with every row present (PIN, always-UV, capacity,
+                 fingerprints, reset) the card is taller than the space above the
+                 bottom bar on many phones, and the last rows and the hint under
+                 the card were cut off with no way to reach them. -->
+            <ScrollView
                 android:id="@+id/paneFido"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:padding="16dp"
                 android:visibility="gone">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
                 <!-- Passkeys first: listing and deleting individual credentials is
                      what most people open this tab for, so it's one tap away and
@@ -244,6 +251,7 @@
                     android:paddingVertical="4dp"
                     android:text="@string/fido_read_status_hint" />
             </LinearLayout>
+            </ScrollView>
         </FrameLayout>
 
         <com.google.android.material.bottomnavigation.BottomNavigationView
