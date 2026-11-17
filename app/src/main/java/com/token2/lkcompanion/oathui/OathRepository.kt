@@ -7,13 +7,15 @@ import com.token2.lkcompanion.oath.OathCredential
 import com.token2.lkcompanion.oath.OathPassword
 import com.token2.lkcompanion.oath.OathPasswordIncorrectException
 import com.token2.lkcompanion.oath.OathPasswordRequiredException
+import com.token2.lkcompanion.transport.AppletSelectionFailedException
 import com.token2.lkcompanion.transport.AppletUnavailableException
 import com.token2.lkcompanion.transport.SmartCardTransport
 import com.token2.lkcompanion.transport.TransportException
 
 /**
  * Arm-then-tap repository for smart-card OTP applets. YKOATH is probed first;
- * Feitian OTP is probed only when YKOATH is explicitly absent.
+ * Feitian OTP is probed when YKOATH does not answer its SELECT with 9000
+ * (see [detectBackend]).
  */
 class OathRepository {
 
@@ -488,17 +490,34 @@ class OathRepository {
         )
     }
 
-    /** SELECT is the capability probe. A real error stops probing immediately. */
+    /**
+     * SELECT is the capability probe: YKOATH first, then Feitian.
+     *
+     * A card that does not host YKOATH is not obliged to say 6A82. If it refuses
+     * the YKOATH AID with another status word (a Feitian key answers 6700), that
+     * must not end the probe before the Feitian applet has been tried.
+     *
+     * The refusal is kept, and it is what the user gets unless the Feitian applet
+     * answers 9000. So the one outcome that differs from "stop at the YKOATH
+     * refusal" is a key that then selects the Feitian applet; every other
+     * combination of answers reports exactly what it reported before.
+     */
     private fun detectBackend(transport: SmartCardTransport): Backend? {
         val ykoath = OathApplet(transport)
-        try {
+        var ykoathRefusal: AppletSelectionFailedException? = null
+        val ykoathInfo = try {
+            ykoath.select()
+        } catch (_: AppletUnavailableException) {
+            null
+        } catch (e: AppletSelectionFailedException) {
+            ykoathRefusal = e
+            null
+        }
+        if (ykoathInfo != null) {
             // SELECT succeeds on a password-protected applet too, so unlock here:
             // otherwise the first LIST/CALCULATE fails with SW 6982.
-            val info = ykoath.select()
-            unlockOrThrow(ykoath, info)
+            unlockOrThrow(ykoath, ykoathInfo)
             return Backend.Ykoath(ykoath)
-        } catch (_: AppletUnavailableException) {
-            // Continue only when the card explicitly says this applet is absent.
         }
 
         val feitian = FeitianOtpApplet(transport)
@@ -506,7 +525,11 @@ class OathRepository {
             feitian.select()
             return Backend.Feitian(feitian)
         } catch (_: AppletUnavailableException) {
+            ykoathRefusal?.let { throw it }
             return null
+        } catch (e: AppletSelectionFailedException) {
+            // Refused here as well: the earlier YKOATH refusal stays the error.
+            throw ykoathRefusal ?: e
         }
     }
 

@@ -37,6 +37,7 @@ import com.token2.lkcompanion.oathui.OathEntryAdapter
 import com.token2.lkcompanion.token2ui.Token2Repository
 import com.token2.lkcompanion.token2ui.Token2PinRepository.OpResult as PinResult
 import com.token2.lkcompanion.transport.NfcTransport
+import com.token2.lkcompanion.transport.AppletSelectionFailedException
 import com.token2.lkcompanion.transport.AppletUnavailableException
 import com.token2.lkcompanion.transport.SmartCardTransport
 import com.token2.lkcompanion.transport.TransportException
@@ -1972,6 +1973,7 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
     /** Preserve the YKOATH status row, with Feitian as its ordered fallback. */
     private fun oathInfoRow(transport: SmartCardTransport): StatusCard.Row {
+        var ykoathRefused = false
         try {
             val applet = OathApplet(transport)
             val info = applet.select()
@@ -1985,6 +1987,12 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             return otpPresentRow("OATH OTP", entries.size)
         } catch (_: AppletUnavailableException) {
             // Probe the next protocol.
+        } catch (_: AppletSelectionFailedException) {
+            // The card refused the YKOATH AID without saying "absent" (a Feitian
+            // key answers 6700). Same rule as OathRepository.detectBackend: the
+            // Feitian probe below still has to run, and only a Feitian applet
+            // that answers changes what this row showed before.
+            ykoathRefused = true
         } catch (_: Exception) {
             return otpUnavailableRow("OATH OTP")
         }
@@ -1999,6 +2007,11 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
             return otpPresentRow("Feitian OTP", entries.size)
         } catch (_: AppletUnavailableException) {
             return otpUnavailableRow("OATH OTP")
+        } catch (e: AppletSelectionFailedException) {
+            // Only SELECT throws this. A key that refuses both AIDs keeps the row
+            // it had when the YKOATH refusal alone decided it.
+            return if (ykoathRefused) otpUnavailableRow("OATH OTP")
+            else otpProbeErrorRow("Feitian OTP", e)
         } catch (e: Exception) {
             return otpProbeErrorRow("Feitian OTP", e)
         }
