@@ -62,6 +62,23 @@ class AppletUnavailableException(
         "SW=${"%04X".format(statusWord)}"
 )
 
+/**
+ * SELECT reached the card and was refused with a status word that does not
+ * plainly mean "absent" (e.g. 6700).
+ *
+ * This stays a real error for a caller that needs this one applet. A caller
+ * that probes several applets in turn may keep probing and only surface the
+ * refusal when nothing else answers: a card is free to reject an AID it does
+ * not host with something other than 6A82.
+ */
+class AppletSelectionFailedException(
+    val aid: ByteArray,
+    val statusWord: Int,
+) : TransportException(
+    "SELECT failed for AID ${aid.joinToString("") { "%02X".format(it) }}, " +
+        "SW=${"%04X".format(statusWord)}"
+)
+
 /** Preserve the difference between an absent applet and a real transport/card error. */
 internal fun appletSelectionException(aid: ByteArray, statusWord: Int): TransportException {
     val unavailable = when (statusWord) {
@@ -73,9 +90,6 @@ internal fun appletSelectionException(aid: ByteArray, statusWord: Int): Transpor
     return if (unavailable) {
         AppletUnavailableException(aid.copyOf(), statusWord)
     } else {
-        TransportException(
-            "SELECT failed for AID ${aid.joinToString("") { "%02X".format(it) }}, " +
-                "SW=${"%04X".format(statusWord)}"
-        )
+        AppletSelectionFailedException(aid.copyOf(), statusWord)
     }
 }
