@@ -151,8 +151,13 @@ object X509 {
 
         val rsaOid = byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0x86.toByte(), 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x01)
         val ecOid = byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0xCE.toByte(), 0x3D, 0x02, 0x01)
+        // RFC 8410: the algorithm OID alone names the key, with no parameters.
+        val ed25519Oid = byteArrayOf(0x2B, 0x65, 0x70)   // 1.3.101.112
+        val x25519Oid = byteArrayOf(0x2B, 0x65, 0x6E)    // 1.3.101.110
 
         return when {
+            oid.contentEquals(ed25519Oid) -> "Ed25519"
+            oid.contentEquals(x25519Oid) -> "X25519"
             oid.contentEquals(rsaOid) -> {
                 // params skipped; key is a BIT STRING wrapping an RSA SEQUENCE { modulus, exp }
                 val (_, ks, _) = spki.readTlv()      // BIT STRING
@@ -178,10 +183,12 @@ object X509 {
         val p256 = byteArrayOf(0x2A, 0x86.toByte(), 0x48, 0xCE.toByte(), 0x3D, 0x03, 0x01, 0x07)
         val p384 = byteArrayOf(0x2B, 0x81.toByte(), 0x04, 0x00, 0x22)
         val p521 = byteArrayOf(0x2B, 0x81.toByte(), 0x04, 0x00, 0x23)
+        val secp256k1 = byteArrayOf(0x2B, 0x81.toByte(), 0x04, 0x00, 0x0A)   // 1.3.132.0.10
         return when {
             oid.contentEquals(p256) -> "P-256"
             oid.contentEquals(p384) -> "P-384"
             oid.contentEquals(p521) -> "P-521"
+            oid.contentEquals(secp256k1) -> "secp256k1"
             else -> "(curve?)"
         }
     }
