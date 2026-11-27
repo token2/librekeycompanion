@@ -1962,10 +1962,16 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
     private fun readInfoOverlay(transport: SmartCardTransport,
                                 usbDevice: android.hardware.usb.UsbDevice? = null) {
         val rows = ArrayList<StatusCard.Row>()
+        // First of all reads: telling a CanoKey apart selects its Admin applet,
+        // which ends any other applet's session (see CanoKey).
+        val canokey = try {
+            com.token2.lkcompanion.canokey.CanoKey.probe(transport)
+        } catch (_: Exception) { null }
         rows.add(StatusCard.Row(
             iconRes = R.drawable.ic_contactless,
             label = "Connected",
-            secondary = transport.displayName,
+            secondary = canokey?.let { canokeySummary(it, usbDevice) + " · " + transport.displayName }
+                ?: transport.displayName,
             chipText = "OK", chipState = StatusCard.State.SUCCESS,
         ))
         rows.add(oathInfoRow(transport))
@@ -1974,6 +1980,21 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         rows.add(openPgpInfoRow(transport))
         rows.add(pivInfoRow(transport))
         runOnUiThread { hideNfcOverlay(); infoStatusCard.render(rows) }
+    }
+
+    /**
+     * "CanoKey Canary · firmware 3.1.2 · S/N 439041101": the model from the USB
+     * product string, else the hardware variant the key reports, then what its
+     * Admin applet gave. A serial never written is left out.
+     */
+    private fun canokeySummary(info: com.token2.lkcompanion.canokey.CanoKey.Info,
+                               usbDevice: android.hardware.usb.UsbDevice?): String {
+        val product = try { usbDevice?.productName } catch (_: SecurityException) { null }
+        val name = product?.takeIf { it.contains("CanoKey", ignoreCase = true) }
+            ?: info.hardware ?: "CanoKey"
+        return listOfNotNull(
+            name, "firmware ${info.firmware}", info.serial?.let { "S/N $it" },
+        ).joinToString(" · ")
     }
 
     /** Preserve the YKOATH status row, with Feitian as its ordered fallback. */
