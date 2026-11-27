@@ -130,6 +130,9 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         val aaguidHex: String?,
         val minPinLength: Int?,
         val remainingDiscCreds: Int? = null,
+        /** CTAP 2.2 longTouchForReset (tag 0x18): the key confirms a reset only
+         *  with a long touch, not the usual short one. */
+        val longTouchForReset: Boolean = false,
     ) {
         val isFido2 get() = versions.any { it.startsWith("FIDO_2") }
         val clientPinSet get() = options["clientPin"] == true
@@ -163,7 +166,9 @@ class Ctap2Client(private val wire: Ctap2Wire) {
         val minPin = (m[0x0D] as? Number)?.toInt()
         // CTAP2.1 remainingDiscoverableCredentials (tag 0x14) — absent on older keys.
         val remainingDisc = (m[0x14] as? Number)?.toInt()
-        return Info(versions, options, protos, aaguid, minPin, remainingDisc)
+        // CTAP 2.2 longTouchForReset (tag 0x18) — absent on most keys.
+        val longTouch = m[0x18] == true
+        return Info(versions, options, protos, aaguid, minPin, remainingDisc, longTouch)
     }
 
     // ---- clientPIN ----

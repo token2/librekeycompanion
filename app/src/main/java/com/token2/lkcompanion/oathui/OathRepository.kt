@@ -1,9 +1,11 @@
 package com.token2.lkcompanion.oathui
 
+import com.token2.lkcompanion.canokey.CanoKey
 import com.token2.lkcompanion.oath.FeitianOtpApplet
 import com.token2.lkcompanion.oath.FeitianTouchTimeoutException
 import com.token2.lkcompanion.oath.OathApplet
 import com.token2.lkcompanion.oath.OathCredential
+import com.token2.lkcompanion.oath.OathNameExistsException
 import com.token2.lkcompanion.oath.OathPassword
 import com.token2.lkcompanion.oath.OathPasswordIncorrectException
 import com.token2.lkcompanion.oath.OathPasswordRequiredException
@@ -102,7 +104,13 @@ class OathRepository {
         abstract fun calculate(stored: Stored, unixSeconds: Long): String
         abstract fun protocolName(credential: OathCredential): String
 
+        /** The account's first code comes one counter late on this key (see [OathApplet.hotpStartsLate]). */
+        open fun startsHotpLate(credential: OathCredential): Boolean = false
+
         class Ykoath(private val applet: OathApplet) : Backend(BackendKind.YKOATH) {
+            override fun startsHotpLate(credential: OathCredential): Boolean =
+                credential.type == OathCredential.Type.HOTP && applet.hotpStartsLate(credential.counter)
+
             override fun list(): List<Stored> = applet.list().map {
                 val type = if ((it.typeAlgo and 0xF0) == 0x20) {
                     OathCredential.Type.TOTP
@@ -358,8 +366,14 @@ class OathRepository {
                             backend, calculateCodes = backend.kind != BackendKind.FEITIAN
                         )
                         val verb = if (duplicates.isEmpty()) "Added" else "Replaced"
+                        val note = if (backend.startsHotpLate(op.cred)) {
+                            ". On a CanoKey an HOTP account starts at counter 1: its first " +
+                                "code is the service's second, which services usually accept"
+                        } else {
+                            ""
+                        }
                         OpResult.Success(
-                            "$verb ${op.cred.account} on ${backend.kind.displayName}",
+                            "$verb ${op.cred.account} on ${backend.kind.displayName}$note",
                             entries,
                             backend.kind,
                         )
@@ -429,6 +443,10 @@ class OathRepository {
                 // Keep the pending operation intact so the UI can retry without
                 // asking the user to re-enter a credential or confirm deletion.
                 OpResult.TouchTimeout(e.message ?: "Touch was not detected")
+            } catch (e: ReplacementPutPendingException) {
+                // The old account is gone and the new one is not on the key yet.
+                // Keep the armed Add: the next tap puts it, the name now free.
+                OpResult.Failure(e.message ?: "OTP error")
             } catch (e: TransportException) {
                 // A replacement PUT may already be committed. Keep its cleanup
                 // phase so the next connection can reconcile with LIST before
@@ -503,7 +521,9 @@ class OathRepository {
      * combination of answers reports exactly what it reported before.
      */
     private fun detectBackend(transport: SmartCardTransport): Backend? {
-        val ykoath = OathApplet(transport)
+        // Before the YKOATH SELECT: telling a CanoKey apart selects its Admin
+        // applet, which would end an OATH session (see [CanoKey]).
+        val ykoath = OathApplet(transport, isCanoKey = CanoKey.isCanoKey(transport))
         var ykoathRefusal: AppletSelectionFailedException? = null
         val ykoathInfo = try {
             ykoath.select()
@@ -596,8 +616,36 @@ class OathRepository {
                 false
             }
             if (!applied) throw timeout
+        } catch (exists: OathNameExistsException) {
+            // A CanoKey refuses a name it already holds instead of overwriting
+            // it. The user agreed to replace that account: delete it, then put.
+            if (!directOverwrite) throw exists
+            val protocolName = backend.protocolName(credential)
+            val old = backend.list().firstOrNull { it.protocolName == protocolName } ?: throw exists
+            backend.delete(old)
+            try {
+                backend.put(credential)
+            } catch (e: OathPasswordRequiredException) {
+                throw e
+            } catch (e: OathPasswordIncorrectException) {
+                throw e
+            } catch (e: TransportException) {
+                throw ReplacementPutPendingException(credential.account, e)
+            }
         }
     }
+
+    /**
+     * A CanoKey replacement deleted the old account, then its PUT failed: the
+     * key holds neither. The armed Add is kept, so presenting the key again
+     * puts the new one (see [putAndVerify]).
+     */
+    private class ReplacementPutPendingException(account: String, cause: Throwable) :
+        TransportException(
+            "The old $account was removed from the key, but the new one was not saved " +
+                "(${cause.message}). Present the key again to save it.",
+            cause,
+        )
 
     private fun deleteAndVerify(backend: Backend, stored: Stored) {
         try {

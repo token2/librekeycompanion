@@ -22,6 +22,13 @@ interface SmartCardTransport {
     val isConnected: Boolean
 
     /**
+     * The card's historical bytes, as its ATR (USB CCID) or ATS (NFC-A) gave
+     * them: often the card's own name (`Canokey`, `YubiKey`...). Empty when it
+     * sent none; null when this transport doesn't know them.
+     */
+    val historicalBytes: ByteArray? get() = null
+
+    /**
      * Select an applet by its AID and return the raw selection response
      * (without the trailing SW1SW2), or throw [TransportException] if the
      * applet is absent / selection fails.

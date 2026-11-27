@@ -31,7 +31,17 @@ import java.security.SecureRandom
  * especially the challenge construction for TOTP CALCULATE (big-endian time /
  * period) and the SET PASSWORD key-derivation salt (the applet's device ID).
  */
-class OathApplet(private val transport: SmartCardTransport) {
+class OathApplet(
+    private val transport: SmartCardTransport,
+    /**
+     * The applet is a CanoKey's (canokey-core `applets/oath/oath.c`, the same
+     * since 1.6.2). It speaks YKOATH with two differences that matter here: it
+     * adds one to an HOTP counter *before* computing a code, so the counter it
+     * stores is one below the first code's; and it refuses a PUT of a name it
+     * already holds (6985) instead of overwriting it.
+     */
+    val isCanoKey: Boolean = false,
+) {
 
     companion object {
         val AID = byteArrayOf(0xA0.toByte(), 0x00, 0x00, 0x05, 0x27, 0x21, 0x01)
@@ -55,11 +65,14 @@ class OathApplet(private val transport: SmartCardTransport) {
         private const val TAG_NO_RESPONSE = 0x77
         private const val TAG_PROPERTY = 0x78
         private const val TAG_VERSION = 0x79
+        private const val TAG_IMF = 0x7A
         private const val TAG_ALGORITHM = 0x7B
 
         // Status words that mean "the applet is locked" / "wrong password".
         private const val SW_SECURITY_STATUS_NOT_SATISFIED = 0x6982
         private const val SW_INCORRECT_PARAMETERS = 0x6A80
+        /** A CanoKey's answer to a PUT of a name it already holds. */
+        private const val SW_CONDITIONS_NOT_SATISFIED = 0x6985
 
         // Type / algorithm nibbles packed into the KEY tag's first byte
         private const val TYPE_HOTP = 0x10
@@ -219,13 +232,28 @@ class OathApplet(private val transport: SmartCardTransport) {
             cred.secret
         }
         val keyTlv = byteArrayOf(typeByte.toByte(), cred.digits.toByte()) + secret
+        val imf = initialMovingFactor(cred)
         val body = ByteArrayOutputStream().apply {
             writeTlv(TAG_NAME, cred.ykName.toByteArray(Charsets.UTF_8))
             writeTlv(TAG_KEY, keyTlv)
+            // An HOTP account's starting counter (an otpauth URI's `counter=`),
+            // as YKOATH's initial moving factor: four bytes, big-endian. Left out
+            // when it is 0, the applet's default, so such a PUT is unchanged.
+            if (imf != 0L) writeTlv(TAG_IMF, ByteArray(4) { ((imf ushr (24 - 8 * it)) and 0xFF).toByte() })
         }.toByteArray()
         val resp = transport.transceive(Apdu.build(0x00, INS_PUT, 0x00, 0x00, body))
+        if (isCanoKey && resp.sw == SW_CONDITIONS_NOT_SATISFIED) {
+            throw OathNameExistsException(cred.ykName)
+        }
         requireSuccess(resp, "PUT")
     }
+
+    /**
+     * Whether an HOTP account put with [counter] starts at a later code than
+     * the service expects: on a CanoKey, which adds one before computing, a
+     * counter of 0 can't be stored one below, so the first code is counter 1's.
+     */
+    fun hotpStartsLate(counter: Long): Boolean = isCanoKey && counter == 0L
 
     fun delete(name: String) {
         val body = ByteArrayOutputStream().apply {
@@ -238,6 +266,19 @@ class OathApplet(private val transport: SmartCardTransport) {
     data class StoredCredential(val name: String, val typeAlgo: Int)
 
     // --- helpers ---
+
+    /**
+     * The initial moving factor [put] sends: an HOTP account's counter, 0 for
+     * TOTP. On a CanoKey one less, since it adds one before computing a code
+     * ([isCanoKey]); a counter of 0 stays 0 there ([hotpStartsLate]).
+     */
+    private fun initialMovingFactor(cred: OathCredential): Long {
+        if (cred.type != OathCredential.Type.HOTP) return 0
+        require(cred.counter in 0..0xFFFF_FFFFL) {
+            "An HOTP counter must fit in 4 bytes (0 to 4294967295)"
+        }
+        return if (isCanoKey && cred.counter > 0) cred.counter - 1 else cred.counter
+    }
 
     /**
      * A locked applet answers every instruction with 6982. Report that as a
@@ -288,3 +329,10 @@ class OathApplet(private val transport: SmartCardTransport) {
         write(tag and 0xFF); write(value.size and 0xFF); write(value)
     }
 }
+
+/**
+ * A CanoKey refused a PUT because it already holds an account of that name
+ * (SW 6985): it doesn't overwrite one. The message is the status word, as
+ * every other refused PUT reports it.
+ */
+class OathNameExistsException(val name: String) : TransportException("PUT SW=6985")
