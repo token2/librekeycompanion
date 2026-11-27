@@ -35,9 +35,13 @@ class UsbCcidTransport(
 
     private var sequence: Int = 0
 
+    /** From the ATR the card answered power-on with ([Atr.historicalBytes]). */
+    override var historicalBytes: ByteArray? = null
+        private set
+
     init {
         connection.claimInterface(ccidInterface, true)
-        powerOn()
+        historicalBytes = Atr.historicalBytes(powerOn())
         isConnected = true
     }
 

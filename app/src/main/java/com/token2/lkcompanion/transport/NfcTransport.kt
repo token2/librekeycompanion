@@ -16,6 +16,9 @@ class NfcTransport(private val isoDep: IsoDep) : SmartCardTransport {
     override val displayName: String = "NFC security key (NFC)"
     override val isConnected: Boolean get() = isoDep.isConnected
 
+    /** The ATS historical bytes of an NFC-A tag; null for an NFC-B one. */
+    override val historicalBytes: ByteArray? = isoDep.historicalBytes
+
     init {
         isoDep.timeout = 5_000
         if (!isoDep.isConnected) isoDep.connect()
