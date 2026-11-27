@@ -55,6 +55,7 @@ class OathApplet(private val transport: SmartCardTransport) {
         private const val TAG_NO_RESPONSE = 0x77
         private const val TAG_PROPERTY = 0x78
         private const val TAG_VERSION = 0x79
+        private const val TAG_IMF = 0x7A
         private const val TAG_ALGORITHM = 0x7B
 
         // Status words that mean "the applet is locked" / "wrong password".
@@ -219,9 +220,14 @@ class OathApplet(private val transport: SmartCardTransport) {
             cred.secret
         }
         val keyTlv = byteArrayOf(typeByte.toByte(), cred.digits.toByte()) + secret
+        val imf = initialMovingFactor(cred)
         val body = ByteArrayOutputStream().apply {
             writeTlv(TAG_NAME, cred.ykName.toByteArray(Charsets.UTF_8))
             writeTlv(TAG_KEY, keyTlv)
+            // An HOTP account's starting counter (an otpauth URI's `counter=`),
+            // as YKOATH's initial moving factor: four bytes, big-endian. Left out
+            // when it is 0, the applet's default, so such a PUT is unchanged.
+            if (imf != 0L) writeTlv(TAG_IMF, ByteArray(4) { ((imf ushr (24 - 8 * it)) and 0xFF).toByte() })
         }.toByteArray()
         val resp = transport.transceive(Apdu.build(0x00, INS_PUT, 0x00, 0x00, body))
         requireSuccess(resp, "PUT")
@@ -238,6 +244,15 @@ class OathApplet(private val transport: SmartCardTransport) {
     data class StoredCredential(val name: String, val typeAlgo: Int)
 
     // --- helpers ---
+
+    /** The initial moving factor [put] sends: an HOTP account's counter, 0 for TOTP. */
+    private fun initialMovingFactor(cred: OathCredential): Long {
+        if (cred.type != OathCredential.Type.HOTP) return 0
+        require(cred.counter in 0..0xFFFF_FFFFL) {
+            "An HOTP counter must fit in 4 bytes (0 to 4294967295)"
+        }
+        return cred.counter
+    }
 
     /**
      * A locked applet answers every instruction with 6982. Report that as a

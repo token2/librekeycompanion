@@ -2125,19 +2125,29 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
         // HID interface. Read the AAGUID over CTAPHID from the same USB device so the
         // overview still shows the MDS name / certification / icon. Fall back to a
         // prior FIDO-tab read's cached AAGUID if a direct read isn't possible.
-        if (msg.contains("6A81") || msg.contains("0xFF")) {
-            var aaguid: String? = fidoRepo.lastInfo?.aaguidHex
-            if (usbDevice != null) {
-                val conn = usbManager.openDevice(usbDevice)
-                val wire = if (conn != null)
-                    com.token2.lkcompanion.fido.ctap.CtapHidWire.find(conn, usbDevice) else null
-                if (wire != null) {
-                    aaguid = try {
-                        com.token2.lkcompanion.fido.ctap.Ctap2Client(wire).getInfo().aaguidHex
-                    } catch (_: Exception) { aaguid }
-                }
-                conn?.close()
+        //
+        // A key need not refuse with 6A81 there: a CanoKey (firmware 3.1.2) answers
+        // the standard FIDO AID over USB with 6A82, since it answers FIDO only under
+        // its own selector on that interface. So over USB any failure here looks for
+        // the FIDO HID interface, and FIDO2 is reported absent only when there is
+        // none. Over NFC the status-word test decides, as before.
+        val ccidRefusal = msg.contains("6A81") || msg.contains("0xFF")
+        var hidFound = false
+        var hidAaguid: String? = null
+        if (usbDevice != null) {
+            val conn = usbManager.openDevice(usbDevice)
+            val wire = if (conn != null)
+                com.token2.lkcompanion.fido.ctap.CtapHidWire.find(conn, usbDevice) else null
+            if (wire != null) {
+                hidFound = true
+                hidAaguid = try {
+                    com.token2.lkcompanion.fido.ctap.Ctap2Client(wire).getInfo().aaguidHex
+                } catch (_: Exception) { null }
             }
+            conn?.close()
+        }
+        if (ccidRefusal || hidFound) {
+            val aaguid = hidAaguid ?: if (ccidRefusal) fidoRepo.lastInfo?.aaguidHex else null
             val mdsEntry = mds.lookup(aaguid)
             val mdsIcon = com.token2.lkcompanion.fido.MdsRepository.decodeIcon(mdsEntry?.iconDataUri)
             StatusCard.Row(R.drawable.ic_key,
@@ -2564,15 +2574,21 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
     // --- FIDO2 reset ---
     private fun confirmResetFido() {
+        // A key that reports longTouchForReset (CTAP 2.2) takes the reset only with
+        // a long touch; a short one, the usual, is refused.
+        val longTouch = fidoRepo.lastInfo?.longTouchForReset == true
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Erase everything?")
             .setMessage("This permanently erases every passkey on the key and removes " +
                 "its PIN. The key returns to a factory state and this cannot be undone.\n\n" +
                 "Some keys only accept a reset within a few seconds of being connected — " +
-                "if it fails, re-tap (or unplug and replug) the key and try again immediately.")
+                "if it fails, re-tap (or unplug and replug) the key and try again immediately." +
+                if (longTouch) "\n\nThis key confirms a reset only with a long touch: when it " +
+                    "asks for a touch, hold it for a few seconds." else "")
             .setPositiveButton("Erase everything") { _, _ ->
                 fidoRepo.arm(FidoRepository.PendingOp.ResetFido)
-                showNfcOverlay("Hold your key to the phone", "Resetting FIDO2…")
+                showNfcOverlay("Hold your key to the phone",
+                    if (longTouch) "Resetting FIDO2… touch and hold the key" else "Resetting FIDO2…")
             }
             .setNegativeButton("Cancel", null)
             .show()
