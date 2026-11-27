@@ -2574,15 +2574,21 @@ class MainActivity : AppCompatActivity(), NfcAdapter.ReaderCallback,
 
     // --- FIDO2 reset ---
     private fun confirmResetFido() {
+        // A key that reports longTouchForReset (CTAP 2.2) takes the reset only with
+        // a long touch; a short one, the usual, is refused.
+        val longTouch = fidoRepo.lastInfo?.longTouchForReset == true
         com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Erase everything?")
             .setMessage("This permanently erases every passkey on the key and removes " +
                 "its PIN. The key returns to a factory state and this cannot be undone.\n\n" +
                 "Some keys only accept a reset within a few seconds of being connected — " +
-                "if it fails, re-tap (or unplug and replug) the key and try again immediately.")
+                "if it fails, re-tap (or unplug and replug) the key and try again immediately." +
+                if (longTouch) "\n\nThis key confirms a reset only with a long touch: when it " +
+                    "asks for a touch, hold it for a few seconds." else "")
             .setPositiveButton("Erase everything") { _, _ ->
                 fidoRepo.arm(FidoRepository.PendingOp.ResetFido)
-                showNfcOverlay("Hold your key to the phone", "Resetting FIDO2…")
+                showNfcOverlay("Hold your key to the phone",
+                    if (longTouch) "Resetting FIDO2… touch and hold the key" else "Resetting FIDO2…")
             }
             .setNegativeButton("Cancel", null)
             .show()
